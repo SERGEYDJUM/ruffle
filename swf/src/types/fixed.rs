@@ -10,6 +10,7 @@
 //! Use `from_f32`/`from_f64` methods to convert from float to fixed-point.
 //! Extra precision will be truncated, and out-of-range values are saturated.
 
+use serde::{Deserialize, Serialize};
 use std::ops::*;
 
 macro_rules! define_fixed {
@@ -19,7 +20,7 @@ macro_rules! define_fixed {
         into_float($($into_type:path),*)
     ) => {
         /// A signed fixed-point value with $frac_bits bits.
-        #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
         pub struct $type_name($underlying_type);
 
         /// A signed fixed-point type.

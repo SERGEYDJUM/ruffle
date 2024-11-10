@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 use crate::{types::point::Coordinate as PointCoordinate, Point, Twips};
 use std::fmt::{Display, Formatter};
 
@@ -10,7 +12,7 @@ impl Coordinate for Twips {
 }
 
 /// A rectangular region defined by minimum and maximum x- and y-coordinate positions.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Rectangle<T> {
     /// The minimum x-position of the rectangle.
     pub x_min: T,

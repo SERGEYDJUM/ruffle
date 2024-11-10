@@ -1,7 +1,9 @@
+use serde::{Deserialize, Serialize};
+
 use crate::{Color, Fixed8};
 use std::ops::{Mul, MulAssign};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ColorTransform {
     pub r_multiply: Fixed8,
     pub g_multiply: Fixed8,

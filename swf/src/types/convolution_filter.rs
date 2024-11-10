@@ -1,7 +1,9 @@
 use crate::Color;
 use bitflags::bitflags;
+use bitflags_serde_shim::impl_serde_for_bitflags;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ConvolutionFilter {
     pub num_matrix_rows: u8,
     pub num_matrix_cols: u8,
@@ -31,3 +33,5 @@ bitflags! {
         const PRESERVE_ALPHA = 1 << 0;
     }
 }
+
+impl_serde_for_bitflags!(ConvolutionFilterFlags);

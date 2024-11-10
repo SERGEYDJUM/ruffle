@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 use crate::Twips;
 use std::fmt;
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
@@ -27,7 +29,7 @@ impl Coordinate for Twips {
 }
 
 /// A 2D position defined by x and y coordinates.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Point<T: Coordinate> {
     pub x: T,
     pub y: T,
@@ -144,7 +146,7 @@ impl<T: Coordinate> fmt::Display for Point<T> {
 }
 
 /// A difference between two 2D points.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PointDelta<T: Coordinate> {
     pub dx: T,
     pub dy: T,

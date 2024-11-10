@@ -1,7 +1,9 @@
+use serde::{Deserialize, Serialize};
+
 /// An RGBA (red, green, blue, alpha) color.
 ///
 /// All components are stored as [`u8`] and have a color range of 0-255.
-#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Hash)]
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct Color {
     /// The red component value.
     pub r: u8,

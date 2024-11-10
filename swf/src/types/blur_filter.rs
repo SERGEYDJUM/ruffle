@@ -1,5 +1,7 @@
 use crate::{Fixed16, Rectangle, Twips};
 use bitflags::bitflags;
+use bitflags_serde_shim::impl_serde_for_bitflags;
+use serde::{Deserialize, Serialize};
 
 /// How much each pass should multiply the requested blur size by - accumulative.
 /// These are very approximate to Flash, and not 100% exact.
@@ -9,7 +11,7 @@ const PASS_SCALES: [f64; 15] = [
     1.0, 2.1, 2.7, 3.1, 3.5, 3.8, 4.0, 4.2, 4.4, 4.6, 5.0, 6.0, 6.0, 7.0, 7.0,
 ];
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct BlurFilter {
     pub blur_x: Fixed16,
     pub blur_y: Fixed16,
@@ -64,3 +66,5 @@ impl BlurFilterFlags {
         flags
     }
 }
+
+impl_serde_for_bitflags!(BlurFilterFlags);

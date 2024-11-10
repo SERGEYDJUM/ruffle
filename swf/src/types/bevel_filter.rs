@@ -1,7 +1,9 @@
 use crate::{BlurFilter, BlurFilterFlags, Color, Fixed16, Fixed8, Rectangle, Twips};
 use bitflags::bitflags;
+use bitflags_serde_shim::impl_serde_for_bitflags;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct BevelFilter {
     pub shadow_color: Color,
     pub highlight_color: Color,
@@ -91,3 +93,5 @@ impl BevelFilterFlags {
         flags
     }
 }
+
+impl_serde_for_bitflags!(BevelFilterFlags);

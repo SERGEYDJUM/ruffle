@@ -3,8 +3,10 @@ use crate::{
     Twips,
 };
 use bitflags::bitflags;
+use bitflags_serde_shim::impl_serde_for_bitflags;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct DropShadowFilter {
     pub color: Color,
     pub blur_x: Fixed16,
@@ -102,3 +104,5 @@ impl DropShadowFilterFlags {
         flags
     }
 }
+
+impl_serde_for_bitflags!(DropShadowFilterFlags);
