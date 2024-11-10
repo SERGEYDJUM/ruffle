@@ -98,10 +98,10 @@ impl Header {
 /// corrupted.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HeaderExt {
-    pub(crate) header: Header,
-    pub(crate) file_attributes: FileAttributes,
-    pub(crate) background_color: Option<SetBackgroundColor>,
-    pub(crate) uncompressed_len: i32,
+    pub header: Header,
+    pub file_attributes: FileAttributes,
+    pub background_color: Option<SetBackgroundColor>,
+    pub uncompressed_len: i32,
 }
 
 impl HeaderExt {
@@ -828,10 +828,10 @@ pub struct GradientRecord {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct LineStyle {
-    pub(crate) width: Twips,
-    pub(crate) fill_style: FillStyle,
-    pub(crate) flags: LineStyleFlag,
-    pub(crate) miter_limit: Fixed8,
+    pub width: Twips,
+    pub fill_style: FillStyle,
+    pub flags: LineStyleFlag,
+    pub miter_limit: Fixed8,
 }
 
 impl LineStyle {
@@ -1315,17 +1315,17 @@ pub struct GlyphEntry {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EditText<'a> {
-    pub(crate) id: CharacterId,
-    pub(crate) bounds: Rectangle<Twips>,
-    pub(crate) font_id: CharacterId,
-    pub(crate) font_class: &'a SwfStr,
-    pub(crate) height: Twips,
-    pub(crate) color: Color,
-    pub(crate) max_length: u16,
-    pub(crate) layout: TextLayout,
-    pub(crate) variable_name: &'a SwfStr,
-    pub(crate) initial_text: &'a SwfStr,
-    pub(crate) flags: EditTextFlag,
+    pub id: CharacterId,
+    pub bounds: Rectangle<Twips>,
+    pub font_id: CharacterId,
+    pub font_class: &'a SwfStr,
+    pub height: Twips,
+    pub color: Color,
+    pub max_length: u16,
+    pub layout: TextLayout,
+    pub variable_name: &'a SwfStr,
+    pub initial_text: &'a SwfStr,
+    pub flags: EditTextFlag,
 }
 
 impl<'a> EditText<'a> {
