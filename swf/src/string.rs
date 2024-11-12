@@ -1,7 +1,8 @@
 //! String type used by SWF files.
 
 pub use encoding_rs::{Encoding, SHIFT_JIS, UTF_8, WINDOWS_1252};
-use std::{borrow::Cow, fmt};
+use core::str;
+use std::{borrow::Cow, fmt, str::Utf8Error};
 
 /// A bstr-like string type analogous to [`str`] that's returned by SWF parsing functions:
 ///
@@ -245,6 +246,26 @@ impl<'a> Default for &'a SwfStr {
 impl<'a> From<&'a str> for &'a SwfStr {
     fn from(s: &'a str) -> &'a SwfStr {
         SwfStr::from_utf8_str(s)
+    }
+}
+
+impl<'a> TryFrom<&'a SwfStr> for &'a str {
+    type Error = Utf8Error;
+
+    fn try_from(value: &'a SwfStr) -> Result<Self, Self::Error> {
+        str::from_utf8(value.as_bytes())
+    }
+}
+
+impl<'a> From<&'a SwfStr> for &'a [u8] {
+    fn from(value: &'a SwfStr) -> &'a [u8] {
+        value.as_bytes()
+    }
+}
+
+impl<'a> From<&'a [u8]> for &'a SwfStr {
+    fn from(value: &'a [u8]) -> &'a SwfStr {
+        SwfStr::from_bytes(value)
     }
 }
 
