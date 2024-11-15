@@ -191,6 +191,16 @@ impl EditTextData<'_> {
             Twips::ZERO
         }
     }
+
+    fn font_type(&self) -> FontType {
+        if !self.flags.contains(EditTextFlag::USE_OUTLINES) {
+            FontType::Device
+        } else if self.is_tlf {
+            FontType::EmbeddedCFF
+        } else {
+            FontType::Embedded
+        }
+    }
 }
 
 impl<'gc> EditText<'gc> {
@@ -242,12 +252,19 @@ impl<'gc> EditText<'gc> {
             FontType::Device
         };
 
+        let is_word_wrap = swf_tag.is_word_wrap();
+        let content_width = if autosize == AutoSizeMode::None || is_word_wrap {
+            Some(swf_tag.bounds().width() - Self::GUTTER * 2)
+        } else {
+            None
+        };
+
         let layout = html::lower_from_text_spans(
             &text_spans,
             context,
             swf_movie.clone(),
-            swf_tag.bounds().width() - Self::GUTTER * 2,
-            swf_tag.is_word_wrap(),
+            content_width,
+            is_word_wrap,
             font_type,
         );
 
@@ -612,6 +629,10 @@ impl<'gc> EditText<'gc> {
         self.relayout(context);
     }
 
+    pub fn font_type(self) -> FontType {
+        self.0.read().font_type()
+    }
+
     pub fn is_html(self) -> bool {
         self.0.read().flags.contains(EditTextFlag::HTML)
     }
@@ -762,7 +783,7 @@ impl<'gc> EditText<'gc> {
     /// the text, and no higher-level representation. Specifically, CSS should
     /// have already been calculated and applied to HTML trees lowered into the
     /// text-span representation.
-    fn relayout(self, context: &mut UpdateContext<'gc>) {
+    pub fn relayout(self, context: &mut UpdateContext<'gc>) {
         let mut edit_text = self.0.write(context.gc_context);
         let autosize = edit_text.autosize;
         let is_word_wrap = edit_text.flags.contains(EditTextFlag::WORD_WRAP);
@@ -779,17 +800,9 @@ impl<'gc> EditText<'gc> {
 
         // Determine the internal width available for content layout.
         let content_width = if autosize == AutoSizeMode::None || is_word_wrap {
-            edit_text.requested_width - padding
+            Some(edit_text.requested_width - padding)
         } else {
-            edit_text.bounds.width() - padding
-        };
-
-        let font_type = if !edit_text.flags.contains(EditTextFlag::USE_OUTLINES) {
-            FontType::Device
-        } else if edit_text.is_tlf {
-            FontType::EmbeddedCFF
-        } else {
-            FontType::Embedded
+            None
         };
 
         let new_layout = html::lower_from_text_spans(
@@ -798,7 +811,7 @@ impl<'gc> EditText<'gc> {
             movie,
             content_width,
             is_word_wrap,
-            font_type,
+            edit_text.font_type(),
         );
 
         edit_text.layout = new_layout;
@@ -808,6 +821,11 @@ impl<'gc> EditText<'gc> {
 
         let layout_exterior_bounds = edit_text.layout.exterior_bounds();
 
+        // TODO [KJ] The code below that modifies bounds is certainly wrong.
+        //   We should take into account the order of operations performed on the field,
+        //   and that the field might have auto size enabled and disabled.
+        //   Auto size should not modify the state of edittext in such a way that
+        //   the original cannot be recovered.
         if autosize != AutoSizeMode::None {
             if !is_word_wrap {
                 // The edit text's bounds needs to have the padding baked in.
@@ -915,6 +933,25 @@ impl<'gc> EditText<'gc> {
         }
     }
 
+    /// Returns the selection, but takes into account whether the selection should be rendered.
+    fn visible_selection(self, edit_text: &EditTextData<'gc>) -> Option<TextSelection> {
+        let selection = edit_text.selection?;
+        #[allow(clippy::collapsible_else_if)]
+        if selection.is_caret() {
+            if self.has_focus() && !edit_text.flags.contains(EditTextFlag::READ_ONLY) {
+                Some(selection)
+            } else {
+                None
+            }
+        } else {
+            if self.has_focus() || self.always_show_selection() {
+                Some(selection)
+            } else {
+                None
+            }
+        }
+    }
+
     fn render_debug_boxes(
         self,
         context: &mut RenderContext<'_, 'gc>,
@@ -944,6 +981,100 @@ impl<'gc> EditText<'gc> {
         if flags.contains(LayoutDebugBoxesFlag::TEXT_EXTERIOR) {
             context.draw_rect_outline(Color::GREEN, layout.exterior_bounds().into(), Twips::ONE);
         }
+    }
+
+    /// Render lines according to the given procedure.
+    ///
+    /// This skips invisible lines.
+    fn render_lines<F>(self, context: &mut RenderContext<'_, 'gc>, layout: &Layout<'gc>, f: F)
+    where
+        F: Fn(&mut RenderContext<'_, 'gc>, &LayoutLine<'gc>),
+    {
+        // Skip lines that are off-screen.
+        let lines_to_skip = self.scroll().saturating_sub(1);
+        for line in layout.lines().iter().skip(lines_to_skip) {
+            f(context, line);
+        }
+    }
+
+    /// Render the visible text along with selection and the caret.
+    fn render_text(self, context: &mut RenderContext<'_, 'gc>, edit_text: &EditTextData<'gc>) {
+        self.render_selection_background(context, edit_text);
+        self.render_lines(context, &edit_text.layout, |context, line| {
+            self.render_layout_line(context, line);
+        });
+    }
+
+    /// Render the black selection background.
+    fn render_selection_background(
+        self,
+        context: &mut RenderContext<'_, 'gc>,
+        edit_text: &EditTextData<'gc>,
+    ) {
+        let Some(selection) = self.visible_selection(edit_text) else {
+            return;
+        };
+        if selection.is_caret() {
+            return;
+        }
+
+        let (start, end) = (selection.start(), selection.end());
+
+        self.render_lines(context, &edit_text.layout, |context, line| {
+            self.render_selection_background_for_line(context, line, start, end)
+        });
+    }
+
+    fn render_selection_background_for_line(
+        self,
+        context: &mut RenderContext<'_, 'gc>,
+        line: &LayoutLine<'gc>,
+        start: usize,
+        end: usize,
+    ) {
+        let local_start = start.clamp(line.start(), line.end());
+        let local_end = end.clamp(line.start(), line.end());
+
+        if local_start >= local_end {
+            // No selection in this line
+            return;
+        }
+
+        let line_bounds = line.bounds();
+
+        // If the selection ends within this line, the background
+        // is not drawn over leading.
+        let leading = if local_end == end {
+            Twips::ZERO
+        } else {
+            line.leading()
+        };
+
+        let x_start = line
+            .char_x_bounds(local_start)
+            .map(|b| b.0)
+            .unwrap_or_else(|| line_bounds.offset_x());
+        let x_end = line
+            .char_x_bounds(local_end - 1)
+            .map(|b| b.1)
+            .unwrap_or_else(|| line_bounds.extent_x());
+
+        let width = x_end - x_start;
+        let height = line_bounds.height() + leading;
+
+        let color = if self.has_focus() {
+            Color::BLACK
+        } else {
+            Color::GRAY
+        };
+        let selection_box = context.transform_stack.transform().matrix
+            * Matrix::create_box(
+                width.to_pixels() as f32,
+                height.to_pixels() as f32,
+                x_start,
+                line_bounds.origin().y(),
+            );
+        context.commands.draw_rect(color, selection_box);
     }
 
     fn render_layout_line(self, context: &mut RenderContext<'_, 'gc>, line: &LayoutLine<'gc>) {
@@ -976,15 +1107,7 @@ impl<'gc> EditText<'gc> {
             ..Default::default()
         });
 
-        let focused = self.has_focus();
-        let visible_selection = if focused {
-            edit_text.selection
-        } else if self.always_show_selection() {
-            // Caret is not shown even if alwaysShowSelection is true
-            edit_text.selection.filter(|sel| !sel.is_caret())
-        } else {
-            None
-        };
+        let visible_selection = self.visible_selection(&edit_text);
 
         let caret = if let LayoutContent::Text { start, end, .. } = &lbox.content() {
             if let Some(visible_selection) = visible_selection {
@@ -1032,9 +1155,6 @@ impl<'gc> EditText<'gc> {
                     if let Some(glyph_shape_handle) = glyph.shape_handle(context.renderer) {
                         // If it's highlighted, override the color.
                         if matches!(visible_selection, Some(visible_selection) if visible_selection.contains(start + pos)) {
-                            // Draw selection rect
-                            self.render_selection(context, x, advance, caret_height, focused);
-
                             // Set text color to white
                             context.transform_stack.push(&Transform {
                                 matrix: transform.matrix,
@@ -1073,25 +1193,6 @@ impl<'gc> EditText<'gc> {
         }
 
         context.transform_stack.pop();
-    }
-
-    fn render_selection(
-        self,
-        context: &mut RenderContext<'_, 'gc>,
-        x: Twips,
-        width: Twips,
-        height: Twips,
-        focused: bool,
-    ) {
-        let color = if focused { Color::BLACK } else { Color::GRAY };
-        let selection_box = context.transform_stack.transform().matrix
-            * Matrix::create_box(
-                width.to_pixels() as f32,
-                height.to_pixels() as f32,
-                x,
-                Twips::ZERO,
-            );
-        context.commands.draw_rect(color, selection_box);
     }
 
     fn render_caret(
@@ -2361,11 +2462,7 @@ impl<'gc> TDisplayObject<'gc> for EditText<'gc> {
             ..Default::default()
         });
 
-        // Skip lines that are off-screen.
-        let lines_to_skip = self.scroll().saturating_sub(1);
-        for line in edit_text.layout.lines().iter().skip(lines_to_skip) {
-            self.render_layout_line(context, line);
-        }
+        self.render_text(context, &edit_text);
 
         self.render_debug_boxes(
             context,
