@@ -425,15 +425,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bitflags_serde_shim"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df031780c32b0f93cecaf883fa9e351e74679e24380c534aeef94556cfd80ac9"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "bitstream-io"
 version = "2.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5024,12 +5015,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 name = "swf"
 version = "0.2.2"
 dependencies = [
-<<<<<<< HEAD
- "bitflags 2.6.0",
- "bitflags_serde_shim",
-=======
  "bitflags 2.9.0",
->>>>>>> upstream/master
  "bitstream-io",
  "byteorder",
  "encoding_rs",
@@ -5039,7 +5025,6 @@ dependencies = [
  "lzma-rs",
  "num-derive",
  "num-traits",
- "serde",
  "simple_asn1",
 ]
 
