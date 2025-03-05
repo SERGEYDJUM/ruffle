@@ -10,6 +10,7 @@ use crate::display_object::{
 use crate::html::TextFormat;
 use crate::string::{AvmString, StringContext, WStr};
 use gc_arena::Gc;
+use ruffle_macros::istr;
 use swf::Color;
 
 macro_rules! tf_method {
@@ -96,6 +97,7 @@ const PROTO_DECLS: &[Declaration] = declare_properties! {
     "thickness" => property(tf_getter!(thickness), tf_setter!(set_thickness));
     // NOTE: `tabEnabled` is not a built-in property of TextField.
     "tabIndex" => property(tf_getter!(tab_index), tf_setter!(set_tab_index); VERSION_6);
+    "styleSheet" => property(tf_getter!(style_sheet), tf_setter!(set_style_sheet); VERSION_7);
 };
 
 /// Implements `TextField`
@@ -112,7 +114,7 @@ pub fn create_proto<'gc>(
     proto: Object<'gc>,
     fn_proto: Object<'gc>,
 ) -> Object<'gc> {
-    let object = ScriptObject::new(context.gc_context, Some(proto));
+    let object = ScriptObject::new(context, Some(proto));
     define_properties_on(PROTO_DECLS, context, object, fn_proto);
     object.into()
 }
@@ -138,10 +140,10 @@ fn new_text_format<'gc>(
     text_format: TextFormat,
 ) -> ScriptObject<'gc> {
     let proto = activation.context.avm1.prototypes().text_format;
-    let object = ScriptObject::new(activation.context.gc_context, Some(proto));
+    let object = ScriptObject::new(&activation.context.strings, Some(proto));
     object.set_native(
-        activation.context.gc_context,
-        NativeObject::TextFormat(Gc::new(activation.context.gc_context, text_format.into())),
+        activation.gc(),
+        NativeObject::TextFormat(Gc::new(activation.gc(), text_format.into())),
     );
     object
 }
@@ -258,7 +260,7 @@ fn replace_sel<'gc>(
     );
     text_field.set_selection(
         Some(TextSelection::for_position(selection.start() + text.len())),
-        activation.context.gc_context,
+        activation.gc(),
     );
 
     text_field.propagate_text_binding(activation);
@@ -305,7 +307,7 @@ pub fn text<'gc>(
     this: EditText<'gc>,
     activation: &mut Activation<'_, 'gc>,
 ) -> Result<Value<'gc>, Error<'gc>> {
-    Ok(AvmString::new(activation.context.gc_context, this.text()).into())
+    Ok(AvmString::new(activation.gc(), this.text()).into())
 }
 
 pub fn set_text<'gc>(
@@ -370,7 +372,7 @@ pub fn html_text<'gc>(
     this: EditText<'gc>,
     activation: &mut Activation<'_, 'gc>,
 ) -> Result<Value<'gc>, Error<'gc>> {
-    Ok(AvmString::new(activation.context.gc_context, this.html_text()).into())
+    Ok(AvmString::new(activation.gc(), this.html_text()).into())
 }
 
 pub fn set_html_text<'gc>(
@@ -397,7 +399,7 @@ pub fn set_background<'gc>(
     value: Value<'gc>,
 ) -> Result<(), Error<'gc>> {
     let has_background = value.as_bool(activation.swf_version());
-    this.set_has_background(activation.context.gc_context, has_background);
+    this.set_has_background(activation.gc(), has_background);
     Ok(())
 }
 
@@ -415,7 +417,7 @@ pub fn set_background_color<'gc>(
 ) -> Result<(), Error<'gc>> {
     let rgb = value.coerce_to_u32(activation)?;
     let color = Color::from_rgb(rgb, 255);
-    this.set_background_color(activation.context.gc_context, color);
+    this.set_background_color(activation.gc(), color);
     Ok(())
 }
 
@@ -432,7 +434,7 @@ pub fn set_border<'gc>(
     value: Value<'gc>,
 ) -> Result<(), Error<'gc>> {
     let has_border = value.as_bool(activation.swf_version());
-    this.set_has_border(activation.context.gc_context, has_border);
+    this.set_has_border(activation.gc(), has_border);
     Ok(())
 }
 
@@ -450,7 +452,7 @@ pub fn set_border_color<'gc>(
 ) -> Result<(), Error<'gc>> {
     let rgb = value.coerce_to_u32(activation)?;
     let color = Color::from_rgb(rgb, 255);
-    this.set_border_color(activation.context.gc_context, color);
+    this.set_border_color(activation.gc(), color);
     Ok(())
 }
 
@@ -550,7 +552,7 @@ fn variable<'gc>(
     activation: &mut Activation<'_, 'gc>,
 ) -> Result<Value<'gc>, Error<'gc>> {
     if let Some(variable) = this.variable() {
-        return Ok(AvmString::new_utf8(activation.context.gc_context, &variable[..]).into());
+        return Ok(AvmString::new_utf8(activation.gc(), &variable[..]).into());
     }
 
     // Unset `variable` returns null, not undefined
@@ -589,14 +591,16 @@ pub fn set_word_wrap<'gc>(
 
 pub fn auto_size<'gc>(
     this: EditText<'gc>,
-    _activation: &mut Activation<'_, 'gc>,
+    activation: &mut Activation<'_, 'gc>,
 ) -> Result<Value<'gc>, Error<'gc>> {
-    Ok(match this.autosize() {
-        AutoSizeMode::None => "none".into(),
-        AutoSizeMode::Left => "left".into(),
-        AutoSizeMode::Center => "center".into(),
-        AutoSizeMode::Right => "right".into(),
-    })
+    let autosize = match this.autosize() {
+        AutoSizeMode::None => istr!("none"),
+        AutoSizeMode::Left => istr!("left"),
+        AutoSizeMode::Center => istr!("center"),
+        AutoSizeMode::Right => istr!("right"),
+    };
+
+    Ok(autosize.into())
 }
 
 pub fn set_auto_size<'gc>(
@@ -618,11 +622,11 @@ pub fn set_auto_size<'gc>(
 
 pub fn get_type<'gc>(
     this: EditText<'gc>,
-    _activation: &mut Activation<'_, 'gc>,
+    activation: &mut Activation<'_, 'gc>,
 ) -> Result<Value<'gc>, Error<'gc>> {
     let tf_type = match this.is_editable() {
-        true => "input",
-        false => "dynamic",
+        true => istr!("input"),
+        false => istr!("dynamic"),
     };
     Ok(tf_type.into())
 }
@@ -726,12 +730,12 @@ pub fn bottom_scroll<'gc>(
 
 pub fn anti_alias_type<'gc>(
     this: EditText<'gc>,
-    _activation: &mut Activation<'_, 'gc>,
+    activation: &mut Activation<'_, 'gc>,
 ) -> Result<Value<'gc>, Error<'gc>> {
     if this.render_settings().is_advanced() {
-        Ok("advanced".into())
+        Ok(istr!("advanced").into())
     } else {
-        Ok("normal".into())
+        Ok(istr!("normal").into())
     }
 }
 
@@ -744,15 +748,9 @@ pub fn set_anti_alias_type<'gc>(
     let new_type = value.coerce_to_string(activation)?;
 
     if &new_type == b"advanced" {
-        this.set_render_settings(
-            activation.context.gc_context,
-            old_settings.with_advanced_rendering(),
-        );
+        this.set_render_settings(activation.gc(), old_settings.with_advanced_rendering());
     } else if &new_type == b"normal" {
-        this.set_render_settings(
-            activation.context.gc_context,
-            old_settings.with_normal_rendering(),
-        );
+        this.set_render_settings(activation.gc(), old_settings.with_normal_rendering());
     }
 
     Ok(())
@@ -760,13 +758,15 @@ pub fn set_anti_alias_type<'gc>(
 
 pub fn grid_fit_type<'gc>(
     this: EditText<'gc>,
-    _activation: &mut Activation<'_, 'gc>,
+    activation: &mut Activation<'_, 'gc>,
 ) -> Result<Value<'gc>, Error<'gc>> {
-    match this.render_settings().grid_fit() {
-        swf::TextGridFit::None => Ok("none".into()),
-        swf::TextGridFit::Pixel => Ok("pixel".into()),
-        swf::TextGridFit::SubPixel => Ok("subpixel".into()),
-    }
+    let grid_fit_type = match this.render_settings().grid_fit() {
+        swf::TextGridFit::None => istr!("none"),
+        swf::TextGridFit::Pixel => istr!("pixel"),
+        swf::TextGridFit::SubPixel => istr!("subpixel"),
+    };
+
+    Ok(grid_fit_type.into())
 }
 
 pub fn set_grid_fit_type<'gc>(
@@ -779,17 +779,17 @@ pub fn set_grid_fit_type<'gc>(
 
     if &new_type == b"pixel" {
         this.set_render_settings(
-            activation.context.gc_context,
+            activation.gc(),
             old_settings.with_grid_fit(swf::TextGridFit::Pixel),
         );
     } else if &new_type == b"subpixel" {
         this.set_render_settings(
-            activation.context.gc_context,
+            activation.gc(),
             old_settings.with_grid_fit(swf::TextGridFit::SubPixel),
         );
     } else if &new_type == b"none" {
         this.set_render_settings(
-            activation.context.gc_context,
+            activation.gc(),
             old_settings.with_grid_fit(swf::TextGridFit::None),
         );
     } // NOTE: In AS2 invalid values do nothing.
@@ -813,7 +813,7 @@ pub fn set_thickness<'gc>(
     let new_thickness = value.coerce_to_f64(activation)?;
 
     this.set_render_settings(
-        activation.context.gc_context,
+        activation.gc(),
         old_settings.with_thickness(new_thickness as f32),
     );
 
@@ -836,7 +836,7 @@ pub fn set_sharpness<'gc>(
     let new_sharpness = value.coerce_to_f64(activation)?;
 
     this.set_render_settings(
-        activation.context.gc_context,
+        activation.gc(),
         old_settings.with_sharpness(new_sharpness as f32),
     );
 
@@ -847,14 +847,13 @@ fn filters<'gc>(
     this: EditText<'gc>,
     activation: &mut Activation<'_, 'gc>,
 ) -> Result<Value<'gc>, Error<'gc>> {
-    Ok(ArrayObject::new(
-        activation.context.gc_context,
-        activation.context.avm1.prototypes().array,
-        this.filters()
-            .into_iter()
-            .map(|filter| bitmap_filter::filter_to_avm1(activation, filter)),
-    )
-    .into())
+    Ok(ArrayObject::builder(activation)
+        .with(
+            this.filters()
+                .into_iter()
+                .map(|filter| bitmap_filter::filter_to_avm1(activation, filter)),
+        )
+        .into())
 }
 
 fn set_filters<'gc>(
@@ -871,7 +870,7 @@ fn set_filters<'gc>(
             }
         }
     }
-    this.set_filters(activation.context.gc_context, filters);
+    this.set_filters(activation.gc(), filters);
     Ok(())
 }
 
@@ -880,7 +879,7 @@ fn restrict<'gc>(
     activation: &mut Activation<'_, 'gc>,
 ) -> Result<Value<'gc>, Error<'gc>> {
     match this.restrict() {
-        Some(value) => Ok(AvmString::new(activation.context.gc_context, value).into()),
+        Some(value) => Ok(AvmString::new(activation.gc(), value).into()),
         None => Ok(Value::Null),
     }
 }
@@ -954,5 +953,28 @@ pub fn set_condense_white<'gc>(
 ) -> Result<(), Error<'gc>> {
     let condense_white = value.as_bool(activation.swf_version());
     this.set_condense_white(activation.context, condense_white);
+    Ok(())
+}
+
+pub fn style_sheet<'gc>(
+    this: EditText<'gc>,
+    _activation: &mut Activation<'_, 'gc>,
+) -> Result<Value<'gc>, Error<'gc>> {
+    Ok(match this.style_sheet_avm1() {
+        Some(style_sheet) => Value::Object(style_sheet),
+        None => Value::Undefined,
+    })
+}
+
+pub fn set_style_sheet<'gc>(
+    this: EditText<'gc>,
+    activation: &mut Activation<'_, 'gc>,
+    value: Value<'gc>,
+) -> Result<(), Error<'gc>> {
+    let style_sheet = match value {
+        Value::Object(object) => Some(object),
+        _ => None,
+    };
+    this.set_style_sheet_avm1(activation.context, style_sheet);
     Ok(())
 }

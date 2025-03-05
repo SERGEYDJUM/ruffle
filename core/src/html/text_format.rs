@@ -13,6 +13,8 @@ use std::collections::VecDeque;
 use std::fmt::Write;
 use std::sync::Arc;
 
+use super::StyleSheet;
+
 const HTML_NEWLINE: u16 = b'\r' as u16;
 const HTML_SPACE: u16 = b' ' as u16;
 
@@ -20,10 +22,8 @@ const HTML_SPACE: u16 = b' ' as u16;
 ///
 /// Unknown entities will be ignored.
 fn process_html_entity(src: &WStr) -> Option<WString> {
-    let amp_index = match src.find(b'&') {
-        Some(i) => i,
-        None => return None, // No entities.
-    };
+    // Returning right away if no entities are found.
+    let amp_index = src.find(b'&')?;
 
     // Contains entities; copy and replace.
     let mut result_str = WString::with_capacity(src.len(), src.is_wide());
@@ -164,7 +164,7 @@ impl TextFormat {
         let align = et.layout().map(|l| l.align);
         let left_margin = et.layout().map(|l| l.left_margin.to_pixels());
         let right_margin = et.layout().map(|l| l.right_margin.to_pixels());
-        let indent = et.layout().map(|l| l.indent.to_pixels());
+        let indent = et.layout().map(|l| l.indent.to_pixels().round_ties_even());
         let leading = et.layout().map(|l| l.leading.to_pixels());
 
         // TODO: Text fields that don't specify a font are assumed to be 12px
@@ -309,7 +309,7 @@ impl TextFormat {
     /// Properties defined in both will resolve to the one defined in `self`.
     pub fn mix_with(self, rhs: TextFormat) -> Self {
         Self {
-            font: self.font.or(rhs.font),
+            font: self.font.filter(|f| !f.is_empty()).or(rhs.font),
             size: self.size.or(rhs.size),
             color: self.color.or(rhs.color),
             align: self.align.or(rhs.align),
@@ -426,7 +426,7 @@ impl TextSpanFont {
     }
 
     fn set_text_format(&mut self, tf: &TextFormat) {
-        if let Some(font) = &tf.font {
+        if let Some(font) = tf.font.as_ref().filter(|f| !f.is_empty()) {
             self.face = font.clone();
         }
 
@@ -626,6 +626,7 @@ impl FormatSpans {
     pub fn from_html(
         html: &WStr,
         default_format: TextFormat,
+        style_sheet: Option<StyleSheet<'_>>,
         is_multiline: bool,
         condense_white: bool,
         swf_version: u8,
@@ -678,6 +679,28 @@ impl FormatSpans {
         reader_config.check_end_names = false;
         reader_config.allow_unmatched_ends = true;
 
+        fn class_name_to_selector(class: &WStr) -> WString {
+            let mut selector = WString::from_utf8(".");
+            selector.push_str(&class.to_ascii_lowercase());
+            selector
+        }
+
+        fn apply_style(
+            style_sheet: Option<StyleSheet<'_>>,
+            format: TextFormat,
+            selector: &WStr,
+        ) -> TextFormat {
+            let Some(style_sheet) = style_sheet else {
+                return format;
+            };
+
+            if let Some(style) = style_sheet.get_style(selector) {
+                style.clone().mix_with(format)
+            } else {
+                format
+            }
+        }
+
         loop {
             match reader.read_event() {
                 Ok(Event::Start(ref e)) => {
@@ -719,25 +742,44 @@ impl FormatSpans {
                             // Skip push to `format_stack`.
                             continue;
                         }
-                        b"p" => {
+                        tag @ b"p" => {
                             p_open = true;
+
+                            format = apply_style(style_sheet, format, WStr::from_units(tag));
+
+                            if let Some(class) = attribute(b"class") {
+                                let selector = &class_name_to_selector(&class);
+                                format = apply_style(style_sheet, format, selector);
+                            }
+
                             if let Some(align) = attribute(b"align") {
+                                let align = align.to_ascii_lowercase();
                                 if align == WStr::from_units(b"left") {
                                     format.align = Some(swf::TextAlign::Left)
                                 } else if align == WStr::from_units(b"center") {
                                     format.align = Some(swf::TextAlign::Center)
                                 } else if align == WStr::from_units(b"right") {
                                     format.align = Some(swf::TextAlign::Right)
+                                } else if align == WStr::from_units(b"justify") {
+                                    format.align = Some(swf::TextAlign::Justify)
                                 }
                             }
                         }
-                        b"a" => {
+                        tag @ b"a" => {
                             if let Some(href) = attribute(b"href") {
                                 format.url = Some(href);
                             }
 
                             if let Some(target) = attribute(b"target") {
                                 format.target = Some(target);
+                            }
+
+                            // TODO Docs claim that a:link, a:hover, a:active, should work.
+                            format = apply_style(style_sheet, format, WStr::from_units(tag));
+
+                            if let Some(class) = attribute(b"class") {
+                                let selector = &class_name_to_selector(&class);
+                                format = apply_style(style_sheet, format, selector);
                             }
                         }
                         b"font" => {
@@ -823,9 +865,11 @@ impl FormatSpans {
                         b"u" => {
                             format.underline = Some(true);
                         }
-                        b"li" => {
-                            let is_last_nl = text.iter().last() == Some(HTML_NEWLINE);
-                            if is_multiline && !is_last_nl && text.len() > 0 {
+                        tag @ b"li" => {
+                            format = apply_style(style_sheet, format, WStr::from_units(tag));
+
+                            let is_last_nl = text.iter().next_back() == Some(HTML_NEWLINE);
+                            if is_multiline && !is_last_nl && !text.is_empty() {
                                 // If the last paragraph was not closed and
                                 // there was some text since then,
                                 // we need to close it here.
@@ -869,7 +913,16 @@ impl FormatSpans {
                                 );
                             }
                         }
-                        _ => {}
+                        b"span" => {
+                            if let Some(class) = attribute(b"class") {
+                                let selector = &class_name_to_selector(&class);
+                                format = apply_style(style_sheet, format, selector);
+                            }
+                        }
+                        tag => {
+                            // TODO Add 'display' style support, Flash adds a newline on 'display: block'
+                            format = apply_style(style_sheet, format, WStr::from_units(tag));
+                        }
                     }
                     opened_starts.push(opened_buffer.len());
                     opened_buffer.extend(tag_name);
@@ -1000,6 +1053,11 @@ impl FormatSpans {
 
     pub fn set_default_format(&mut self, tf: TextFormat) {
         self.default_format = tf.mix_with(self.default_format.clone());
+
+        // Empty text always gets the default format.
+        if self.text.is_empty() {
+            self.spans = vec![TextSpan::with_length_and_format(0, &self.default_format)];
+        }
     }
 
     pub fn hide_text(&mut self) {
@@ -1701,7 +1759,7 @@ impl<'a> FormatState<'a> {
         }
 
         let encoded = line.to_utf8_lossy();
-        let escaped = escape(&encoded);
+        let escaped = escape(&*encoded);
 
         if let Cow::Borrowed(_) = &encoded {
             // Optimization: if the utf8 conversion was a no-op, we know the text is ASCII;

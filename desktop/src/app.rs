@@ -4,7 +4,7 @@ use crate::player::{LaunchOptions, PlayerController};
 use crate::preferences::GlobalPreferences;
 use crate::util::{
     get_screen_size, gilrs_button_to_gamepad_button, parse_url, plot_stats_in_tracy,
-    winit_to_ruffle_key_code, winit_to_ruffle_text_control,
+    winit_input_to_ruffle_key_descriptor, winit_to_ruffle_text_control,
 };
 use anyhow::Error;
 use gilrs::{Event, EventType, Gilrs};
@@ -64,11 +64,6 @@ impl MainWindow {
             // Event consumed by GUI.
             return;
         }
-        let height_offset = if self.gui.window().fullscreen().is_some() || self.no_gui {
-            0.0
-        } else {
-            MENU_HEIGHT as f64 * self.gui.window().scale_factor()
-        };
         match event {
             WindowEvent::CloseRequested => {
                 event_loop.exit();
@@ -81,7 +76,7 @@ impl MainWindow {
                     let viewport_scale_factor = self.gui.window().scale_factor();
                     player.set_viewport_dimensions(ViewportDimensions {
                         width: size.width,
-                        height: size.height.saturating_sub(height_offset as u32),
+                        height: size.height.saturating_sub(self.gui.height_offset() as u32),
                         scale_factor: viewport_scale_factor,
                     });
                 }
@@ -96,10 +91,8 @@ impl MainWindow {
                 }
 
                 self.mouse_pos = position;
-                let event = PlayerEvent::MouseMove {
-                    x: position.x,
-                    y: position.y - height_offset,
-                };
+                let (x, y) = self.gui.window_to_movie_position(position);
+                let event = PlayerEvent::MouseMove { x, y };
                 self.player.handle_event(event);
                 self.check_redraw();
             }
@@ -125,8 +118,7 @@ impl MainWindow {
 
                 use ruffle_core::events::MouseButton as RuffleMouseButton;
                 use winit::event::MouseButton;
-                let x = self.mouse_pos.x;
-                let y = self.mouse_pos.y - height_offset;
+                let (x, y) = self.gui.window_to_movie_position(self.mouse_pos);
                 let button = match button {
                     MouseButton::Left => RuffleMouseButton::Left,
                     MouseButton::Right => RuffleMouseButton::Right,
@@ -213,15 +205,10 @@ impl MainWindow {
                         .send_event(RuffleEvent::ExitFullScreen);
                 }
 
-                let key_code = winit_to_ruffle_key_code(&event);
-                // [NA] TODO: This event used to give a single char. `last()` is functionally the same,
-                // but we may want to be better at this in the future.
-                let key_char = event.text.clone().and_then(|text| text.chars().last());
-
-                match (key_code, &event.state) {
-                    (Some(key_code), ElementState::Pressed) => {
-                        self.player
-                            .handle_event(PlayerEvent::KeyDown { key_code, key_char });
+                let key = winit_input_to_ruffle_key_descriptor(&event);
+                match event.state {
+                    ElementState::Pressed => {
+                        self.player.handle_event(PlayerEvent::KeyDown { key });
                         if let Some(control_code) =
                             winit_to_ruffle_text_control(&event, &self.modifiers)
                         {
@@ -234,11 +221,9 @@ impl MainWindow {
                             }
                         }
                     }
-                    (Some(key_code), ElementState::Released) => {
-                        self.player
-                            .handle_event(PlayerEvent::KeyUp { key_code, key_char });
+                    ElementState::Released => {
+                        self.player.handle_event(PlayerEvent::KeyUp { key });
                     }
-                    _ => {}
                 };
                 self.check_redraw();
             }
@@ -257,7 +242,7 @@ impl MainWindow {
         // do not resize while window is maximized.
         let should_resize = !self.gui.window().is_maximized();
 
-        let viewport_size = if should_resize {
+        let (viewport_size, state) = if should_resize {
             let movie_width = swf_header.stage_size().width().to_pixels();
             let movie_height = swf_header.stage_size().height().to_pixels();
 
@@ -312,16 +297,18 @@ impl MainWindow {
             // On X11 (and possibly other platforms), the window size is not updated immediately.
             // On a successful resize request, wait for the window to be resized to the requested size
             // before we start running the SWF (which can observe the viewport size in "noScale" mode)
-            if !window_resize_denied && window_size != viewport_size.into() {
-                self.loaded = LoadingState::WaitingForResize;
+            let state = if !window_resize_denied && window_size != viewport_size.into() {
+                LoadingState::WaitingForResize
             } else {
-                self.loaded = LoadingState::Loaded;
-            }
+                LoadingState::Loaded
+            };
 
-            viewport_size
+            (viewport_size, state)
         } else {
-            self.gui.window().inner_size()
+            (self.gui.window().inner_size(), LoadingState::Loaded)
         };
+
+        self.loaded = state;
 
         self.gui.window().set_fullscreen(if self.start_fullscreen {
             Some(Fullscreen::Borderless(None))
@@ -366,11 +353,11 @@ impl MainWindow {
         // We should look at changing our tick to happen somewhere else if we see any behavioural problems.
         if matches!(self.loaded, LoadingState::Loaded) {
             let new_time = Instant::now();
-            let dt = new_time.duration_since(self.time).as_micros();
+            let dt = new_time.duration_since(self.time).as_nanos();
             if dt > 0 {
                 self.time = new_time;
                 if let Some(mut player) = self.player.get() {
-                    player.tick(dt as f64 / 1000.0);
+                    player.tick(dt as f64 / 1_000_000.0);
                     self.next_frame_time = Some(new_time + player.time_til_next_frame());
                 } else {
                     self.next_frame_time = None;
@@ -434,16 +421,35 @@ impl ApplicationHandler<RuffleEvent> for App {
                 Icon::from_rgba(icon_bytes.to_vec(), 32, 32).expect("App icon should be correct");
 
             let no_gui = self.preferences.cli.no_gui;
-            let min_window_size = (16, if no_gui { 16 } else { MENU_HEIGHT + 16 }).into();
+            let min_window_size = if no_gui {
+                (16, 16)
+            } else {
+                (350, MENU_HEIGHT + 16)
+            }
+            .into();
             let preferred_width = self.preferences.cli.width;
             let preferred_height = self.preferences.cli.height;
             let start_fullscreen = self.preferences.cli.fullscreen;
 
-            let window_attributes = WindowAttributes::default()
+            #[cfg_attr(not(target_os = "linux"), allow(unused_mut))]
+            let mut window_attributes = WindowAttributes::default()
                 .with_visible(false)
                 .with_title("Ruffle")
                 .with_window_icon(Some(icon))
                 .with_min_inner_size(min_window_size);
+
+            #[cfg(target_os = "linux")]
+            {
+                use winit::platform::startup_notify::{
+                    self, EventLoopExtStartupNotify, WindowAttributesExtStartupNotify,
+                };
+                use winit::platform::wayland::WindowAttributesExtWayland;
+                window_attributes = window_attributes.with_name("rs.ruffle.Ruffle", "main");
+                if let Some(token) = event_loop.read_token_from_env() {
+                    startup_notify::reset_activation_token_env();
+                    window_attributes = window_attributes.with_activation_token(token);
+                }
+            }
 
             let event_loop_proxy = self.event_loop_proxy.clone();
             let preferences = self.preferences.clone();
@@ -597,21 +603,13 @@ impl ApplicationHandler<RuffleEvent> for App {
         if let Some(main_window) = &mut self.main_window {
             main_window.about_to_wait(self.gilrs.as_mut());
 
-            // The event loop is finished; let's find out how long we need to wait for
-            // (but don't change something that's already requesting a sooner update, or we'll delay it)
+            // The event loop is finished; let's find out how long we need to wait for.
+            // We don't need to worry about earlier update requests, as it's the
+            // only place where we're setting control flow, and events cancel wait.
+            // Note: the control flow might be set to `ControlFlow::WaitUntil` with a
+            // timestamp in the past! Take that into consideration when changing this code.
             if let Some(next_frame_time) = main_window.next_frame_time {
-                match event_loop.control_flow() {
-                    // A "Wait" has no time limit, set ours
-                    ControlFlow::Wait => {
-                        event_loop.set_control_flow(ControlFlow::WaitUntil(next_frame_time))
-                    }
-                    // If the existing "WaitUntil" is later than ours, update it
-                    ControlFlow::WaitUntil(next) if next > next_frame_time => {
-                        event_loop.set_control_flow(ControlFlow::WaitUntil(next_frame_time));
-                    }
-                    // It's sooner than ours, don't delay it
-                    _ => {}
-                }
+                event_loop.set_control_flow(ControlFlow::WaitUntil(next_frame_time));
             }
         }
     }

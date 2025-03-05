@@ -3,63 +3,16 @@
 use crate::avm2::activation::Activation;
 use crate::avm2::class::Class;
 use crate::avm2::function::BoundMethod;
-use crate::avm2::method::{Method, NativeMethod};
+use crate::avm2::method::Method;
 use crate::avm2::object::script_object::{ScriptObject, ScriptObjectData};
 use crate::avm2::object::{ClassObject, Object, ObjectPtr, TObject};
 use crate::avm2::scope::ScopeChain;
 use crate::avm2::value::Value;
 use crate::avm2::Error;
+use crate::string::AvmString;
 use core::fmt;
 use gc_arena::barrier::unlock;
-use gc_arena::{
-    lock::{Lock, RefLock},
-    Collect, Gc, GcCell, GcWeak, Mutation,
-};
-use std::cell::Ref;
-
-/// A class instance allocator that allocates Function objects.
-/// This is only used when ActionScript manually calls 'new Function()',
-/// which produces a dummy object that just returns `Value::Undefined`
-/// when called.
-///
-/// Normal `FunctionObject` creation goes through `FunctionObject::from_method`
-/// or `FunctionObject::from_function`.
-pub fn function_allocator<'gc>(
-    class: ClassObject<'gc>,
-    activation: &mut Activation<'_, 'gc>,
-) -> Result<Object<'gc>, Error<'gc>> {
-    let base = ScriptObjectData::new(class);
-
-    let mc = activation.gc();
-
-    let dummy = Gc::new(
-        mc,
-        NativeMethod {
-            method: |_, _, _| Ok(Value::Undefined),
-            name: "<Empty Function>",
-            signature: vec![],
-            resolved_signature: GcCell::new(mc, None),
-            return_type: None,
-            is_variadic: true,
-        },
-    );
-
-    Ok(FunctionObject(Gc::new(
-        mc,
-        FunctionObjectData {
-            base,
-            exec: RefLock::new(BoundMethod::from_method(
-                Method::Native(dummy),
-                activation.create_scopechain(),
-                None,
-                None,
-                None,
-            )),
-            prototype: Lock::new(None),
-        },
-    ))
-    .into())
-}
+use gc_arena::{lock::Lock, Collect, Gc, GcWeak, Mutation};
 
 /// An Object which can be called to execute its function code.
 #[derive(Collect, Clone, Copy)]
@@ -74,10 +27,7 @@ impl fmt::Debug for FunctionObject<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FunctionObject")
             .field("ptr", &Gc::as_ptr(self.0))
-            .field(
-                "name",
-                &self.0.exec.try_borrow().map(|e| e.debug_full_name()),
-            )
+            .field("name", &self.0.exec.debug_full_name())
             .finish()
     }
 }
@@ -90,7 +40,7 @@ pub struct FunctionObjectData<'gc> {
     base: ScriptObjectData<'gc>,
 
     /// Executable code
-    exec: RefLock<BoundMethod<'gc>>,
+    exec: BoundMethod<'gc>,
 
     /// Attached prototype (note: not the same thing as base object's proto)
     prototype: Lock<Option<Object<'gc>>>,
@@ -104,33 +54,16 @@ impl<'gc> FunctionObject<'gc> {
     /// Construct a function from an ABC method and the current closure scope.
     ///
     /// This associated constructor will also create and initialize an empty
-    /// `Object` prototype for the function.
-    pub fn from_function(
-        activation: &mut Activation<'_, 'gc>,
-        method: Method<'gc>,
-        scope: ScopeChain<'gc>,
-    ) -> Result<FunctionObject<'gc>, Error<'gc>> {
-        let this = Self::from_method(activation, method, scope, None, None, None);
-        let es3_proto = activation
-            .avm2()
-            .classes()
-            .object
-            .construct(activation, &[])?;
-
-        this.set_prototype(Some(es3_proto), activation.gc());
-
-        Ok(this)
-    }
-
-    /// Construct a method from an ABC method and the current closure scope.
+    /// `Object` prototype for the function. The given `receiver`, if supplied,
+    /// will override any user-specified `this` parameter.
     ///
-    /// The given `receiver`, if supplied, will override any user-specified
-    /// `this` parameter.
+    /// It is the caller's responsibility to ensure that the `receiver` passed
+    /// to this method is not Value::Null or Value::Undefined.
     pub fn from_method(
         activation: &mut Activation<'_, 'gc>,
         method: Method<'gc>,
         scope: ScopeChain<'gc>,
-        receiver: Option<Object<'gc>>,
+        receiver: Option<Value<'gc>>,
         bound_superclass_object: Option<ClassObject<'gc>>,
         bound_class: Option<Class<'gc>>,
     ) -> FunctionObject<'gc> {
@@ -143,14 +76,54 @@ impl<'gc> FunctionObject<'gc> {
             bound_class,
         );
 
+        let es3_proto = ScriptObject::new_object(activation);
+
         FunctionObject(Gc::new(
-            activation.context.gc_context,
+            activation.gc(),
             FunctionObjectData {
                 base: ScriptObjectData::new(fn_class),
-                exec: RefLock::new(exec),
-                prototype: Lock::new(None),
+                exec,
+                prototype: Lock::new(Some(es3_proto)),
             },
         ))
+    }
+
+    pub fn call(
+        self,
+        activation: &mut Activation<'_, 'gc>,
+        receiver: Value<'gc>,
+        arguments: &[Value<'gc>],
+    ) -> Result<Value<'gc>, Error<'gc>> {
+        let exec = &self.0.exec;
+
+        exec.exec(receiver, arguments, activation, self.into())
+    }
+
+    pub fn construct(
+        self,
+        activation: &mut Activation<'_, 'gc>,
+        arguments: &[Value<'gc>],
+    ) -> Result<Object<'gc>, Error<'gc>> {
+        let object_class = activation.avm2().classes().object;
+
+        let prototype = if let Some(proto) = self.prototype() {
+            proto
+        } else {
+            let proto = object_class.prototype();
+            self.set_prototype(Some(proto), activation.gc());
+            proto
+        };
+
+        let instance = ScriptObject::custom_object(
+            activation.gc(),
+            object_class.inner_class_definition(),
+            Some(prototype),
+            object_class.instance_vtable(),
+        );
+
+        self.call(activation, instance.into(), arguments)?;
+
+        Ok(instance)
     }
 
     pub fn prototype(&self) -> Option<Object<'gc>> {
@@ -161,8 +134,8 @@ impl<'gc> FunctionObject<'gc> {
         unlock!(Gc::write(mc, self.0), FunctionObjectData, prototype).set(proto);
     }
 
-    pub fn num_parameters(&self) -> usize {
-        self.0.exec.borrow().num_parameters()
+    pub fn executable(&self) -> &BoundMethod<'gc> {
+        &self.0.exec
     }
 }
 
@@ -179,57 +152,16 @@ impl<'gc> TObject<'gc> for FunctionObject<'gc> {
         Gc::as_ptr(self.0) as *const ObjectPtr
     }
 
-    fn to_locale_string(
-        &self,
-        activation: &mut Activation<'_, 'gc>,
-    ) -> Result<Value<'gc>, Error<'gc>> {
-        self.to_string(activation)
-    }
+    fn to_string(&self, mc: &Mutation<'gc>) -> AvmString<'gc> {
+        // TODO this should use the ABC method index of the Method held by the
+        // BoundMethod (the same number that appears after "MethodInfo-" in
+        // stack traces)
+        let method_idx = 0;
 
-    fn as_executable(&self) -> Option<Ref<BoundMethod<'gc>>> {
-        Some(self.0.exec.borrow())
+        AvmString::new_utf8(mc, format!("[object Function-{method_idx}]"))
     }
 
     fn as_function_object(&self) -> Option<FunctionObject<'gc>> {
         Some(*self)
-    }
-
-    fn call(
-        self,
-        receiver: Value<'gc>,
-        arguments: &[Value<'gc>],
-        activation: &mut Activation<'_, 'gc>,
-    ) -> Result<Value<'gc>, Error<'gc>> {
-        // NOTE: Cloning an executable does not allocate new memory
-        let exec = self.0.exec.borrow().clone();
-
-        exec.exec(receiver, arguments, activation, self.into())
-    }
-
-    fn construct(
-        self,
-        activation: &mut Activation<'_, 'gc>,
-        arguments: &[Value<'gc>],
-    ) -> Result<Object<'gc>, Error<'gc>> {
-        let object_class = activation.avm2().classes().object;
-
-        let prototype = if let Some(proto) = self.prototype() {
-            proto
-        } else {
-            let proto = object_class.prototype();
-            self.set_prototype(Some(proto), activation.gc());
-            proto
-        };
-
-        let instance = ScriptObject::custom_object(
-            activation.context.gc_context,
-            object_class.inner_class_definition(),
-            Some(prototype),
-            object_class.instance_vtable(),
-        );
-
-        self.call(instance.into(), arguments, activation)?;
-
-        Ok(instance)
     }
 }

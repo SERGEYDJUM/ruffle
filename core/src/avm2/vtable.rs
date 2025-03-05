@@ -1,7 +1,7 @@
 use crate::avm2::activation::Activation;
 use crate::avm2::metadata::Metadata;
 use crate::avm2::method::Method;
-use crate::avm2::object::{ClassObject, FunctionObject, Object};
+use crate::avm2::object::{ClassObject, FunctionObject};
 use crate::avm2::property::{Property, PropertyClass};
 use crate::avm2::property_map::PropertyMap;
 use crate::avm2::scope::ScopeChain;
@@ -164,7 +164,7 @@ impl<'gc> VTable<'gc> {
         // Calling coerce modified `PropertyClass` to cache the class lookup,
         // so store the new value back in the vtable.
         if changed {
-            self.0.write(activation.context.gc_context).slot_classes[slot_id as usize] = slot_class;
+            self.0.write(activation.gc()).slot_classes[slot_id as usize] = slot_class;
         }
         Ok(value)
     }
@@ -485,14 +485,13 @@ impl<'gc> VTable<'gc> {
 
                     slot_classes[new_slot_id as usize] = new_class;
                 }
-                TraitKind::Function { .. } => panic!("TraitKind::Function shouldn't appear"),
             }
         }
     }
 
     /// Retrieve a bound instance method suitable for use as a value.
     ///
-    /// This returns the bound method object itself, as well as it's dispatch
+    /// This returns the bound method object itself, as well as its dispatch
     /// ID. You will need the additional properties in order to install the
     /// method into your object.
     ///
@@ -500,10 +499,13 @@ impl<'gc> VTable<'gc> {
     /// the result. Otherwise, code that relies on bound methods having stable
     /// object identitities (e.g. `EventDispatcher.removeEventListener`) will
     /// fail.
+    ///
+    /// It is the caller's responsibility to ensure that the `receiver` passed
+    /// to this method is not Value::Null or Value::Undefined.
     pub fn make_bound_method(
         self,
         activation: &mut Activation<'_, 'gc>,
-        receiver: Object<'gc>,
+        receiver: Value<'gc>,
         disp_id: u32,
     ) -> Option<FunctionObject<'gc>> {
         self.get_full_method(disp_id)
@@ -511,9 +513,12 @@ impl<'gc> VTable<'gc> {
     }
 
     /// Bind an instance method to a receiver, allowing it to be used as a value. See `VTable::make_bound_method`
+    ///
+    /// It is the caller's responsibility to ensure that the `receiver` passed
+    /// to this method is not Value::Null or Value::Undefined.
     pub fn bind_method(
         activation: &mut Activation<'_, 'gc>,
-        receiver: Object<'gc>,
+        receiver: Value<'gc>,
         method: ClassBoundMethod<'gc>,
     ) -> FunctionObject<'gc> {
         let ClassBoundMethod {

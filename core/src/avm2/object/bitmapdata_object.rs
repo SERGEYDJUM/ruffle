@@ -17,15 +17,13 @@ pub fn bitmap_data_allocator<'gc>(
     let base = ScriptObjectData::new(class);
 
     Ok(BitmapDataObject(Gc::new(
-        activation.context.gc_context,
+        activation.gc(),
         BitmapDataObjectData {
             base,
             // This always starts out as a dummy (invalid) BitmapDataWrapper, so
             // that custom subclasses see a disposed BitmapData before they call super().
             // The real BitmapDataWrapper is set by BitmapData.init()
-            bitmap_data: Lock::new(Some(BitmapDataWrapper::dummy(
-                activation.context.gc_context,
-            ))),
+            bitmap_data: Lock::new(BitmapDataWrapper::dummy(activation.gc())),
         },
     ))
     .into())
@@ -54,7 +52,7 @@ pub struct BitmapDataObjectData<'gc> {
     /// Base script object
     base: ScriptObjectData<'gc>,
 
-    bitmap_data: Lock<Option<BitmapDataWrapper<'gc>>>,
+    bitmap_data: Lock<BitmapDataWrapper<'gc>>,
 }
 
 const _: () = assert!(std::mem::offset_of!(BitmapDataObjectData, base) == 0);
@@ -78,15 +76,15 @@ impl<'gc> BitmapDataObject<'gc> {
         class: ClassObject<'gc>,
     ) -> Result<Object<'gc>, Error<'gc>> {
         let instance: Object<'gc> = Self(Gc::new(
-            activation.context.gc_context,
+            activation.gc(),
             BitmapDataObjectData {
                 base: ScriptObjectData::new(class),
-                bitmap_data: Lock::new(Some(bitmap_data)),
+                bitmap_data: Lock::new(bitmap_data),
             },
         ))
         .into();
 
-        bitmap_data.init_object2(activation.context.gc_context, instance);
+        bitmap_data.init_object2(activation.gc(), instance);
 
         // We call the custom BitmapData class with width and height...
         // but, it always seems to be 1 in Flash Player when constructed from timeline?
@@ -94,7 +92,7 @@ impl<'gc> BitmapDataObject<'gc> {
         // when the custom class makes a super() call, the BitmapData constructor will
         // load in the real data from the linked SymbolClass.
         if class != activation.avm2().classes().bitmapdata {
-            class.call_super_init(instance.into(), &[1.into(), 1.into()], activation)?;
+            class.call_init(instance.into(), &[1.into(), 1.into()], activation)?;
         }
 
         Ok(instance)
@@ -115,12 +113,12 @@ impl<'gc> TObject<'gc> for BitmapDataObject<'gc> {
     }
 
     fn as_bitmap_data(&self) -> Option<BitmapDataWrapper<'gc>> {
-        self.0.bitmap_data.get()
+        Some(self.0.bitmap_data.get())
     }
 
     /// Initialize the bitmap data in this object, if it's capable of
     /// supporting said data
     fn init_bitmap_data(&self, mc: &Mutation<'gc>, new_bitmap: BitmapDataWrapper<'gc>) {
-        unlock!(Gc::write(mc, self.0), BitmapDataObjectData, bitmap_data).set(Some(new_bitmap));
+        unlock!(Gc::write(mc, self.0), BitmapDataObjectData, bitmap_data).set(new_bitmap);
     }
 }

@@ -1,11 +1,12 @@
 //! `flash.net.SharedObject` builtin/prototype
 
 use crate::avm2::error::error;
-use crate::avm2::object::TObject;
-pub use crate::avm2::object::{shared_object_allocator, SharedObjectObject};
+pub use crate::avm2::object::shared_object_allocator;
+use crate::avm2::object::{ScriptObject, SharedObjectObject, TObject};
 use crate::avm2::{Activation, Error, Object, Value};
 use crate::{avm2_stub_getter, avm2_stub_method, avm2_stub_setter};
 use flash_lso::types::{AMFVersion, Lso};
+use ruffle_macros::istr;
 use std::borrow::Cow;
 
 fn new_lso<'gc>(
@@ -25,7 +26,7 @@ fn new_lso<'gc>(
     Ok(Lso::new(
         elements,
         name.split('/')
-            .last()
+            .next_back()
             .map(|e| e.to_string())
             .unwrap_or_else(|| "<unknown>".to_string()),
         AMFVersion::AMF3,
@@ -34,7 +35,7 @@ fn new_lso<'gc>(
 
 pub fn get_local<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    _this: Object<'gc>,
+    _this: Value<'gc>,
     args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
     // TODO: It appears that Flash does some kind of escaping here:
@@ -159,11 +160,7 @@ pub fn get_local<'gc>(
         data
     } else {
         // No data; create a fresh data object.
-        activation
-            .avm2()
-            .classes()
-            .object
-            .construct(activation, &[])?
+        ScriptObject::new_object(activation)
     };
 
     let created_shared_object =
@@ -179,9 +176,11 @@ pub fn get_local<'gc>(
 
 pub fn get_data<'gc>(
     _activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let shared_object = this.as_shared_object().unwrap();
 
     Ok(shared_object.data().into())
@@ -189,9 +188,11 @@ pub fn get_data<'gc>(
 
 pub fn flush<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let shared_object = this.as_shared_object().unwrap();
 
     let data = shared_object.data();
@@ -200,11 +201,11 @@ pub fn flush<'gc>(
     let mut lso = new_lso(activation, name, data)?;
     // Flash does not write empty LSOs to disk
     if lso.body.is_empty() {
-        Ok("flushed".into())
+        Ok(istr!("flushed").into())
     } else {
         let bytes = flash_lso::write::write_to_bytes(&mut lso).unwrap_or_default();
         if activation.context.storage.put(name, &bytes) {
-            Ok("flushed".into())
+            Ok(istr!("flushed").into())
         } else {
             Err(Error::AvmError(error(
                 activation,
@@ -218,9 +219,11 @@ pub fn flush<'gc>(
 
 pub fn get_size<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let shared_object = this.as_shared_object().unwrap();
 
     let data = shared_object.data();
@@ -238,7 +241,7 @@ pub fn get_size<'gc>(
 
 pub fn close<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    _this: Object<'gc>,
+    _this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
     avm2_stub_method!(activation, "flash.net.SharedObject", "close");
@@ -247,13 +250,15 @@ pub fn close<'gc>(
 
 pub fn clear<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let shared_object = this.as_shared_object().unwrap();
 
     // Clear the local data object.
-    shared_object.reset_data(activation)?;
+    shared_object.reset_data(activation);
 
     // Delete data from storage backend.
     let name = shared_object.name();
@@ -264,7 +269,7 @@ pub fn clear<'gc>(
 
 pub fn get_object_encoding<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    _this: Object<'gc>,
+    _this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
     avm2_stub_getter!(activation, "flash.net.SharedObject", "objectEncoding");
@@ -273,7 +278,7 @@ pub fn get_object_encoding<'gc>(
 
 pub fn set_object_encoding<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    _this: Object<'gc>,
+    _this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
     avm2_stub_setter!(activation, "flash.net.SharedObject", "objectEncoding");

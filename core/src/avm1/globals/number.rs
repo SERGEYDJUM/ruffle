@@ -1,6 +1,7 @@
 //! `Number` class impl
 
 use gc_arena::Gc;
+use ruffle_macros::istr;
 
 use crate::avm1::activation::Activation;
 use crate::avm1::clamp::Clamp;
@@ -66,7 +67,7 @@ pub fn create_number_object<'gc>(
     fn_proto: Object<'gc>,
 ) -> Object<'gc> {
     let number = FunctionObject::constructor(
-        context.gc_context,
+        context,
         Executable::Native(number),
         Executable::Native(number_function),
         fn_proto,
@@ -83,7 +84,7 @@ pub fn create_proto<'gc>(
     proto: Object<'gc>,
     fn_proto: Object<'gc>,
 ) -> Object<'gc> {
-    let number_proto = ScriptObject::new(context.gc(), Some(proto));
+    let number_proto = ScriptObject::new(context, Some(proto));
     define_properties_on(PROTO_DECLS, context, number_proto, fn_proto);
     number_proto.into()
 }
@@ -134,7 +135,7 @@ fn to_string<'gc>(
             Ordering::Greater => (number, false),
             Ordering::Equal => {
                 // Bail out immediately if we're 0.
-                return Ok("0".into());
+                return Ok(istr!("0").into());
             }
         };
 
@@ -156,7 +157,7 @@ fn to_string<'gc>(
             i -= 1;
             digits[i] = b'-';
         }
-        Ok(AvmString::new_utf8_bytes(activation.context.gc_context, &digits[i..]).into())
+        Ok(AvmString::new_utf8_bytes(activation.gc(), &digits[i..]).into())
     }
 }
 

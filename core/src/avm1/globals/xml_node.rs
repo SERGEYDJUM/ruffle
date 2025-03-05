@@ -1,5 +1,7 @@
 //! XMLNode class
 
+use ruffle_macros::istr;
+
 use crate::avm1::activation::Activation;
 use crate::avm1::error::Error;
 use crate::avm1::property_decl::{define_properties_on, Declaration};
@@ -43,7 +45,7 @@ pub fn constructor<'gc>(
         let node_value = value.coerce_to_string(activation)?;
         XmlNode::new(mc, node_type, Some(node_value))
     } else {
-        XmlNode::new(mc, TEXT_NODE, Some(activation.strings().empty()))
+        XmlNode::new(mc, TEXT_NODE, Some(istr!("")))
     };
     node.introduce_script_object(mc, this);
     this.set_native(mc, NativeObject::XmlNode(node));
@@ -63,7 +65,7 @@ fn append_child<'gc>(
     ) {
         if !xmlnode.has_child(child_xmlnode) {
             let position = xmlnode.children_len();
-            xmlnode.insert_child(activation.context.gc_context, position, child_xmlnode);
+            xmlnode.insert_child(activation.gc(), position, child_xmlnode);
             xmlnode.refresh_cached_child_nodes(activation)?;
         }
     }
@@ -85,7 +87,7 @@ fn insert_before<'gc>(
     ) {
         if !xmlnode.has_child(child_xmlnode) {
             if let Some(position) = xmlnode.child_position(insertpoint_xmlnode) {
-                xmlnode.insert_child(activation.context.gc_context, position, child_xmlnode);
+                xmlnode.insert_child(activation.gc(), position, child_xmlnode);
                 xmlnode.refresh_cached_child_nodes(activation)?;
             }
         }
@@ -105,7 +107,7 @@ fn clone_node<'gc>(
             .map(|v| v.as_bool(activation.swf_version()))
             .unwrap_or(false),
     ) {
-        let mut clone_node = xmlnode.duplicate(activation.context.gc_context, deep);
+        let mut clone_node = xmlnode.duplicate(activation.gc(), deep);
         return Ok(clone_node.script_object(activation).into());
     }
 
@@ -144,9 +146,9 @@ fn get_prefix_for_namespace<'gc>(
                 if value == uri {
                     if let Some(prefix) = key.strip_prefix(WStr::from_units(b"xmlns")) {
                         if let Some(prefix) = prefix.strip_prefix(b':') {
-                            return Ok(AvmString::new(activation.context.gc_context, prefix).into());
+                            return Ok(AvmString::new(activation.gc(), prefix).into());
                         } else {
-                            return Ok(activation.strings().empty().into());
+                            return Ok(istr!("").into());
                         }
                     }
                 }
@@ -176,7 +178,7 @@ fn remove_node<'gc>(
 ) -> Result<Value<'gc>, Error<'gc>> {
     if let Some(mut node) = this.as_xml_node() {
         let old_parent = node.parent();
-        node.remove_node(activation.context.gc_context);
+        node.remove_node(activation.gc());
         if let Some(old_parent) = old_parent {
             old_parent.refresh_cached_child_nodes(activation)?;
         }
@@ -192,10 +194,10 @@ fn to_string<'gc>(
 ) -> Result<Value<'gc>, Error<'gc>> {
     if let Some(node) = this.as_xml_node() {
         let string = node.into_string(activation)?;
-        return Ok(AvmString::new(activation.context.gc_context, string).into());
+        return Ok(AvmString::new(activation.gc(), string).into());
     }
 
-    Ok(activation.strings().empty().into())
+    Ok(istr!("").into())
 }
 
 fn local_name<'gc>(
@@ -205,7 +207,7 @@ fn local_name<'gc>(
 ) -> Result<Value<'gc>, Error<'gc>> {
     Ok(this
         .as_xml_node()
-        .and_then(|n| n.local_name(activation.context.gc_context))
+        .and_then(|n| n.local_name(activation.gc()))
         .map_or(Value::Null, Value::from))
 }
 
@@ -232,10 +234,7 @@ fn set_node_value<'gc>(
         }
 
         if let Some(node) = this.as_xml_node() {
-            node.set_node_value(
-                activation.context.gc_context,
-                name.coerce_to_string(activation)?,
-            );
+            node.set_node_value(activation.gc(), name.coerce_to_string(activation)?);
         }
     }
     Ok(Value::Undefined)
@@ -385,7 +384,7 @@ fn namespace_uri<'gc>(
         if let Some(prefix) = node.prefix(activation.strings()) {
             return Ok(node
                 .lookup_namespace_uri(&prefix)
-                .unwrap_or_else(|| activation.strings().empty().into()));
+                .unwrap_or_else(|| istr!("").into()));
         }
 
         return Ok(Value::Null);
@@ -400,7 +399,7 @@ pub fn create_proto<'gc>(
     proto: Object<'gc>,
     fn_proto: Object<'gc>,
 ) -> Object<'gc> {
-    let xml_node_proto = ScriptObject::new(context.gc_context, Some(proto));
+    let xml_node_proto = ScriptObject::new(context, Some(proto));
     define_properties_on(PROTO_DECLS, context, xml_node_proto, fn_proto);
     xml_node_proto.into()
 }

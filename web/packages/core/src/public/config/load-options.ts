@@ -322,6 +322,26 @@ export interface DefaultFonts {
 }
 
 /**
+ * @experimental
+ */
+export enum GamepadButton {
+    South = "south",
+    East = "east",
+    North = "north",
+    West = "west",
+    LeftTrigger = "left-trigger",
+    LeftTrigger2 = "left-trigger-2",
+    RightTrigger = "right-trigger",
+    RightTrigger2 = "right-trigger-2",
+    Select = "select",
+    Start = "start",
+    DPadUp = "dpad-up",
+    DPadDown = "dpad-down",
+    DPadLeft = "dpad-left",
+    DPadRight = "dpad-right",
+}
+
+/**
  * Any options used for loading a movie.
  */
 export interface BaseLoadOptions {
@@ -667,6 +687,39 @@ export interface BaseLoadOptions {
      * This allows you to emulate Adobe AIR or Adobe Flash Player.
      */
     playerRuntime?: PlayerRuntime;
+
+    /**
+     * An object mapping gamepad button names to ActionScript key codes.
+     *
+     * With the appropriate mapping pressing a button on the gamepad will look like the corresponding key press to the loaded SWF.
+     * This can be used for adding gamepad support to games that don't support it otherwise.
+     *
+     * An example config for mapping the D-pad to the arrow keys would look like this:
+     * `
+     * {
+     *   "dpad-up": 38,
+     *   "dpad-down": 40,
+     *   "dpad-left": 37,
+     *   "dpad-right": 39,
+     * }
+     * `
+     *
+     * @experimental
+     * @default {}
+     */
+    gamepadButtonMapping?: Partial<Record<GamepadButton, number>>;
+
+    /**
+     * A set of rules that rewrite URLs in both network requests and links.
+     *
+     * They are always scanned in order, and the first one that matches is used.
+     * A rule either matches using a RegExp (in which case the replacement may use `$...`),
+     * or a string (in which case the match and the replacement are always exact).
+     *
+     * They are useful when a SWF uses an obsolete URL, in which case
+     * you can rewrite it to something else that works.
+     */
+    urlRewriteRules?: Array<[RegExp | string, string]>;
 }
 
 /**

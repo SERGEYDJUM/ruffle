@@ -11,6 +11,7 @@ use crate::avm1::{NativeObject, Object, ObjectPtr, ScriptObject, TObject, Value}
 use crate::display_object::DisplayObject;
 use crate::string::AvmString;
 use gc_arena::{Collect, Gc, Mutation};
+use ruffle_macros::istr;
 
 /// Implementation of the `super` object in AS2.
 ///
@@ -42,10 +43,7 @@ pub struct SuperObjectData<'gc> {
 impl<'gc> SuperObject<'gc> {
     /// Construct a `super` for an incoming stack frame.
     pub fn new(activation: &mut Activation<'_, 'gc>, this: Object<'gc>, depth: u8) -> Self {
-        Self(Gc::new(
-            activation.context.gc_context,
-            SuperObjectData { this, depth },
-        ))
+        Self(Gc::new(activation.gc(), SuperObjectData { this, depth }))
     }
 
     pub fn this(&self) -> Object<'gc> {
@@ -93,18 +91,18 @@ impl<'gc> TObject<'gc> for SuperObject<'gc> {
 
     fn call(
         &self,
-        name: AvmString<'gc>,
+        name: impl Into<ExecutionName<'gc>>,
         activation: &mut Activation<'_, 'gc>,
         _this: Value<'gc>,
         args: &[Value<'gc>],
     ) -> Result<Value<'gc>, Error<'gc>> {
         let constructor = self
             .base_proto(activation)
-            .get("__constructor__", activation)?
+            .get(istr!("__constructor__"), activation)?
             .coerce_to_object(activation);
         match constructor.as_executable() {
             Some(exec) => exec.exec(
-                ExecutionName::Dynamic(name),
+                name.into(),
                 activation,
                 self.0.this.into(),
                 self.0.depth + 1,

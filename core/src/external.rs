@@ -7,9 +7,11 @@ use crate::avm1::{
 };
 use crate::avm2::activation::Activation as Avm2Activation;
 use crate::avm2::error::Error as Avm2Error;
-use crate::avm2::object::TObject as _;
+use crate::avm2::object::{
+    ArrayObject as Avm2ArrayObject, Object as Avm2Object, ScriptObject as Avm2ScriptObject,
+    TObject as _,
+};
 use crate::avm2::Value as Avm2Value;
-use crate::avm2::{ArrayObject as Avm2ArrayObject, Object as Avm2Object};
 use crate::context::UpdateContext;
 use crate::string::AvmString;
 use gc_arena::Collect;
@@ -168,27 +170,26 @@ impl Value {
                 } else {
                     &value
                 };
-                Avm1Value::String(AvmString::new_utf8(activation.context.gc_context, value))
+                Avm1Value::String(AvmString::new_utf8(activation.gc(), value))
             }
             Value::Object(values) => {
                 let object = Avm1ScriptObject::new(
-                    activation.context.gc_context,
+                    &activation.context.strings,
                     Some(activation.context.avm1.prototypes().object),
                 );
                 for (key, value) in values {
-                    let key = AvmString::new_utf8(activation.context.gc_context, key);
+                    let key = AvmString::new_utf8(activation.gc(), key);
                     let _ = object.set(key, value.into_avm1(activation), activation);
                 }
                 object.into()
             }
-            Value::List(values) => Avm1ArrayObject::new(
-                activation.context.gc_context,
-                activation.context.avm1.prototypes().array,
-                values
-                    .iter()
-                    .map(|value| value.to_owned().into_avm1(activation)),
-            )
-            .into(),
+            Value::List(values) => Avm1ArrayObject::builder(activation)
+                .with(
+                    values
+                        .iter()
+                        .map(|value| value.to_owned().into_avm1(activation)),
+                )
+                .into(),
         }
     }
 
@@ -218,19 +219,15 @@ impl Value {
                     let mut values = BTreeMap::new();
 
                     let mut last_index = obj.get_next_enumerant(0, activation)?;
-                    while let Some(index) = last_index {
-                        if index == 0 {
-                            break;
-                        }
-
+                    while last_index != 0 {
                         let name = obj
-                            .get_enumerant_name(index, activation)?
+                            .get_enumerant_name(last_index, activation)?
                             .coerce_to_string(activation)?;
-                        let value = obj.get_enumerant_value(index, activation)?;
+                        let value = obj.get_enumerant_value(last_index, activation)?;
 
                         values.insert(name.to_string(), Value::from_avm2(activation, value)?);
 
-                        last_index = obj.get_next_enumerant(index, activation)?;
+                        last_index = obj.get_next_enumerant(last_index, activation)?;
                     }
 
                     Value::Object(values)
@@ -248,20 +245,15 @@ impl Value {
             Value::Null => Avm2Value::Null,
             Value::Bool(value) => Avm2Value::Bool(value),
             Value::Number(value) => Avm2Value::Number(value),
-            Value::String(value) => {
-                Avm2Value::String(AvmString::new_utf8(activation.context.gc_context, value))
-            }
+            Value::String(value) => Avm2Value::String(AvmString::new_utf8(activation.gc(), value)),
             Value::Object(values) => {
-                let obj = activation
-                    .avm2()
-                    .classes()
-                    .object
-                    .construct(activation, &[])
-                    .unwrap();
+                let obj = Avm2ScriptObject::new_object(activation);
+
                 for (key, value) in values.into_iter() {
-                    let key = AvmString::new_utf8(activation.context.gc_context, key);
+                    let key = AvmString::new_utf8(activation.gc(), key);
                     let value = value.into_avm2(activation);
-                    obj.set_public_property(key, value, activation).unwrap();
+                    obj.set_string_property_local(key, value, activation)
+                        .unwrap();
                 }
                 Avm2Value::Object(obj)
             }
@@ -271,7 +263,7 @@ impl Value {
                     .map(|value| value.to_owned().into_avm2(activation))
                     .collect();
 
-                Avm2Value::Object(Avm2ArrayObject::from_storage(activation, storage).unwrap())
+                Avm2ArrayObject::from_storage(activation, storage).into()
             }
         }
     }
@@ -309,7 +301,7 @@ impl<'gc> Callback<'gc> {
                         .into_iter()
                         .map(|v| v.into_avm1(&mut activation))
                         .collect();
-                    let name = AvmString::new_utf8(activation.context.gc_context, name);
+                    let name = AvmString::new_utf8(activation.gc(), name);
                     if let Ok(result) = method
                         .call(name, &mut activation, this.into(), &args)
                         .and_then(|value| Value::from_avm1(&mut activation, value))
@@ -320,6 +312,8 @@ impl<'gc> Callback<'gc> {
                 Value::Null
             }
             Callback::Avm2 { method } => {
+                let method = Avm2Value::from(*method);
+
                 let domain = context
                     .library
                     .library_for_movie(context.swf.clone())
@@ -331,7 +325,7 @@ impl<'gc> Callback<'gc> {
                     .map(|v| v.into_avm2(&mut activation))
                     .collect();
                 match method
-                    .call(Avm2Value::Null, &args, &mut activation)
+                    .call(&mut activation, Avm2Value::Null, &args)
                     .and_then(|value| Value::from_avm2(&mut activation, value))
                 {
                     Ok(result) => result,

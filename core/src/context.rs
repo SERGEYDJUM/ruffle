@@ -35,6 +35,7 @@ use crate::player::{MouseData, Player};
 use crate::prelude::*;
 use crate::socket::Sockets;
 use crate::streams::StreamManager;
+use crate::string::HasStringContext;
 use crate::string::{AvmString, StringContext};
 use crate::stub::StubCollection;
 use crate::tag_utils::{SwfMovie, SwfSlice};
@@ -58,7 +59,7 @@ use web_time::Instant;
 pub struct UpdateContext<'gc> {
     /// The mutation context to allocate and mutate `Gc` pointers.
     ///
-    /// NOTE: This is redundant with `strings.gc_context`, but is used by
+    /// NOTE: This is redundant with `strings.gc()`, but is used by
     /// too much code to remove.
     pub gc_context: &'gc Mutation<'gc>,
 
@@ -227,6 +228,13 @@ pub struct UpdateContext<'gc> {
     pub post_frame_callbacks: &'gc mut Vec<PostFrameCallback<'gc>>,
 }
 
+impl<'gc> HasStringContext<'gc> for UpdateContext<'gc> {
+    #[inline(always)]
+    fn strings_ref(&self) -> &StringContext<'gc> {
+        &self.strings
+    }
+}
+
 /// Convenience methods for controlling audio.
 impl<'gc> UpdateContext<'gc> {
     pub fn global_sound_transform(&self) -> &SoundTransform {
@@ -347,11 +355,11 @@ impl<'gc> UpdateContext<'gc> {
         }
 
         self.stage.set_movie_size(
-            self.gc_context,
+            self.gc(),
             self.swf.width().to_pixels() as u32,
             self.swf.height().to_pixels() as u32,
         );
-        self.stage.set_movie(self.gc_context, self.swf.clone());
+        self.stage.set_movie(self.gc(), self.swf.clone());
 
         let stage_domain = self.avm2.stage_domain();
         let mut activation = Avm2Activation::from_domain(self, stage_domain);
@@ -380,18 +388,18 @@ impl<'gc> UpdateContext<'gc> {
         activation
             .context
             .stage
-            .set_loader_info(activation.context.gc_context, stage_loader_info);
+            .set_loader_info(activation.gc(), stage_loader_info);
 
         drop(activation);
 
-        root.set_depth(self.gc_context, 0);
+        root.set_depth(self.gc(), 0);
         let flashvars = if !self.swf.parameters().is_empty() {
-            let object = ScriptObject::new(self.gc_context, None);
+            let object = ScriptObject::new(&self.strings, None);
             for (key, value) in self.swf.parameters().iter() {
                 object.define_value(
-                    self.gc_context,
-                    AvmString::new_utf8(self.gc_context, key),
-                    AvmString::new_utf8(self.gc_context, value).into(),
+                    self.gc(),
+                    AvmString::new_utf8(self.gc(), key),
+                    AvmString::new_utf8(self.gc(), value).into(),
                     Attribute::empty(),
                 );
             }
@@ -413,9 +421,9 @@ impl<'gc> UpdateContext<'gc> {
             .system
             .get_version_string(activation.context.avm1);
         object.define_value(
-            activation.context.gc_context,
+            activation.gc(),
             "$version",
-            AvmString::new_utf8(activation.context.gc_context, version_string).into(),
+            AvmString::new_utf8(activation.gc(), version_string).into(),
             Attribute::empty(),
         );
 
@@ -523,7 +531,7 @@ impl Default for ActionQueue<'_> {
 /// `Player` creates this when it renders a frame and passes it down to display objects.
 ///
 /// As a convenience, this type can be deref-coerced to `Mutation<'gc>`, but note that explicitly
-/// writing `context.gc_context` can be sometimes necessary to satisfy the borrow checker.
+/// writing `context.gc()` can be sometimes necessary to satisfy the borrow checker.
 pub struct RenderContext<'a, 'gc> {
     /// The renderer, used by the display objects to register themselves.
     pub renderer: &'a mut dyn RenderBackend,
@@ -621,14 +629,14 @@ pub enum ActionType<'gc> {
     /// An event handler method, e.g. `onEnterFrame`.
     Method {
         object: Avm1Object<'gc>,
-        name: &'static str,
+        name: AvmString<'gc>,
         args: Vec<Avm1Value<'gc>>,
     },
 
     /// A system listener method.
     NotifyListeners {
-        listener: &'static str,
-        method: &'static str,
+        listener: AvmString<'gc>,
+        method: AvmString<'gc>,
         args: Vec<Avm1Value<'gc>>,
     },
 }

@@ -24,7 +24,7 @@ use egui::*;
 use fluent_templates::fluent_bundle::FluentValue;
 use fluent_templates::{static_loader, Loader};
 use menu_bar::MenuBar;
-use rfd::FileDialog;
+use rfd::AsyncFileDialog;
 use ruffle_core::debug_ui::Message as DebugMessage;
 use ruffle_core::{Player, PlayerEvent};
 use std::collections::HashMap;
@@ -64,11 +64,11 @@ pub fn available_languages() -> Vec<&'static LanguageIdentifier> {
 }
 
 #[allow(dead_code)]
-pub fn text_with_args<'a, T: AsRef<str>>(
+pub fn text_with_args(
     locale: &LanguageIdentifier,
-    id: &'a str,
-    args: &HashMap<T, FluentValue>,
-) -> Cow<'a, str> {
+    id: &'static str,
+    args: &HashMap<Cow<'static, str>, FluentValue>,
+) -> Cow<'static, str> {
     TEXTS
         .try_lookup_with_args(locale, id, args)
         .map(Cow::Owned)
@@ -170,19 +170,23 @@ impl RuffleGui {
                 }
             }
             for item in player.debug_ui().items_to_save() {
-                std::thread::spawn(move || {
-                    if let Some(path) = FileDialog::new()
-                        .set_file_name(&item.suggested_name)
-                        .save_file()
-                    {
-                        if let Err(e) = fs::write(&path, item.data) {
+                let dialog = AsyncFileDialog::new().set_file_name(&item.suggested_name);
+                let picker = self.dialogs.file_picker();
+                let result = picker.show_dialog(dialog, |d| d.save_file());
+                if let Some(result) = result {
+                    tokio::spawn(async move {
+                        let Some(handle) = result.await else {
+                            return;
+                        };
+                        let path = handle.path();
+                        if let Err(e) = fs::write(path, item.data) {
                             tracing::error!(
                                 "Couldn't save {} to {path:?}: {e}",
                                 item.suggested_name,
                             );
                         }
-                    }
-                });
+                    });
+                }
             }
 
             if let Some(context_menu) = &mut self.context_menu {

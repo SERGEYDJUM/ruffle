@@ -14,6 +14,7 @@ use flash_lso::packet::Header;
 use flash_lso::types::ObjectId;
 use flash_lso::types::Value as AMFValue;
 use gc_arena::{Collect, Gc};
+use ruffle_macros::istr;
 use ruffle_wstr::WStr;
 use std::cell::Cell;
 use std::collections::BTreeMap;
@@ -65,10 +66,10 @@ impl<'gc> NetConnection<'gc> {
         let event = constructor
             .construct(&mut activation, &[])?
             .coerce_to_object(&mut activation);
-        event.set("code", code.into(), &mut activation)?;
-        event.set("level", "status".into(), &mut activation)?;
+        event.set(istr!("code"), code.into(), &mut activation)?;
+        event.set(istr!("level"), istr!("status").into(), &mut activation)?;
         this.call_method(
-            "onStatus".into(),
+            istr!("onStatus"),
             &[event.into()],
             &mut activation,
             ExecutionReason::Special,
@@ -91,7 +92,7 @@ impl<'gc> NetConnection<'gc> {
             root_clip,
         );
         this.call_method(
-            "onStatus".into(),
+            istr!("onStatus"),
             &[],
             &mut activation,
             ExecutionReason::Special,
@@ -115,8 +116,8 @@ impl<'gc> NetConnection<'gc> {
             root_clip,
         );
         let method_name = match callback {
-            ResponderCallback::Result => "onResult",
-            ResponderCallback::Status => "onStatus",
+            ResponderCallback::Result => istr!("onResult"),
+            ResponderCallback::Status => istr!("onStatus"),
         };
         let reader = flash_lso::read::Reader::default();
         let mut reference_cache = BTreeMap::default();
@@ -127,7 +128,7 @@ impl<'gc> NetConnection<'gc> {
             &mut reference_cache,
         );
         responder.call_method(
-            method_name.into(),
+            method_name,
             &[value],
             &mut activation,
             ExecutionReason::Special,
@@ -339,7 +340,7 @@ pub fn create_proto<'gc>(
     proto: Object<'gc>,
     fn_proto: Object<'gc>,
 ) -> Object<'gc> {
-    let object = ScriptObject::new(context.gc_context, Some(proto));
+    let object = ScriptObject::new(context, Some(proto));
     define_properties_on(PROTO_DECLS, context, object, fn_proto);
     object.into()
 }
@@ -350,7 +351,7 @@ pub fn create_class<'gc>(
     fn_proto: Object<'gc>,
 ) -> Object<'gc> {
     FunctionObject::constructor(
-        context.gc_context,
+        context,
         Executable::Native(constructor),
         constructor_to_fn!(constructor),
         fn_proto,

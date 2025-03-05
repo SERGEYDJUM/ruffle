@@ -13,7 +13,7 @@ pub fn video_allocator<'gc>(
     while let Some(target) = target_class {
         if target == video_class {
             let movie = activation.caller_movie_or_root();
-            let new_do = Video::new(activation.context.gc_context, movie, 0, 0, None);
+            let new_do = Video::new(activation.gc(), movie, 0, 0, None);
             return initialize_for_allocator(activation, new_do.into(), class);
         }
 
@@ -41,14 +41,16 @@ pub fn video_allocator<'gc>(
 /// Implements `flash.media.Video`'s `init` method, which is called from the constructor
 pub fn init<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     if let Some(video) = this.as_display_object().and_then(|dobj| dobj.as_video()) {
         let width = args.get_i32(activation, 0)?;
         let height = args.get_i32(activation, 1)?;
 
-        video.set_size(activation.context.gc_context, width, height);
+        video.set_size(activation.gc(), width, height);
     }
 
     Ok(Value::Undefined)
@@ -56,9 +58,11 @@ pub fn init<'gc>(
 
 pub fn attach_net_stream<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     if let Some(video) = this.as_display_object().and_then(|dobj| dobj.as_video()) {
         let source = args.get_value(0).as_object();
 

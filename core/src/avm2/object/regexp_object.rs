@@ -3,13 +3,12 @@
 use crate::avm2::activation::Activation;
 use crate::avm2::object::script_object::ScriptObjectData;
 use crate::avm2::object::{ClassObject, Object, ObjectPtr, TObject};
-use crate::avm2::regexp::{RegExp, RegExpFlags};
-use crate::avm2::value::Value;
+use crate::avm2::regexp::RegExp;
 use crate::avm2::Error;
-use crate::string::{AvmString, StringContext, WString};
 use core::fmt;
 use gc_arena::barrier::unlock;
 use gc_arena::{lock::RefLock, Collect, Gc, GcWeak, Mutation};
+use ruffle_macros::istr;
 use std::cell::{Ref, RefMut};
 
 /// A class instance allocator that allocates RegExp objects.
@@ -20,10 +19,10 @@ pub fn reg_exp_allocator<'gc>(
     let base = ScriptObjectData::new(class);
 
     Ok(RegExpObject(Gc::new(
-        activation.context.gc_context,
+        activation.gc(),
         RegExpObjectData {
             base,
-            regexp: RefLock::new(RegExp::new(activation.strings().empty())),
+            regexp: RefLock::new(RegExp::new(istr!(""))),
         },
     ))
     .into())
@@ -68,7 +67,7 @@ impl<'gc> RegExpObject<'gc> {
         let base = ScriptObjectData::new(class);
 
         let this: Object<'gc> = RegExpObject(Gc::new(
-            activation.context.gc_context,
+            activation.gc(),
             RegExpObjectData {
                 base,
                 regexp: RefLock::new(regexp),
@@ -76,7 +75,7 @@ impl<'gc> RegExpObject<'gc> {
         ))
         .into();
 
-        class.call_super_init(this.into(), &[], activation)?;
+        class.call_init(this.into(), &[], activation)?;
 
         Ok(this)
     }
@@ -93,34 +92,6 @@ impl<'gc> TObject<'gc> for RegExpObject<'gc> {
 
     fn as_ptr(&self) -> *const ObjectPtr {
         Gc::as_ptr(self.0) as *const ObjectPtr
-    }
-
-    fn value_of(&self, context: &mut StringContext<'gc>) -> Result<Value<'gc>, Error<'gc>> {
-        let regexp = self.0.regexp.borrow();
-        let mut s = WString::new();
-        s.push_byte(b'/');
-        s.push_str(&regexp.source());
-        s.push_byte(b'/');
-
-        let flags = regexp.flags();
-
-        if flags.contains(RegExpFlags::GLOBAL) {
-            s.push_byte(b'g');
-        }
-        if flags.contains(RegExpFlags::IGNORE_CASE) {
-            s.push_byte(b'i');
-        }
-        if flags.contains(RegExpFlags::MULTILINE) {
-            s.push_byte(b'm');
-        }
-        if flags.contains(RegExpFlags::DOTALL) {
-            s.push_byte(b's');
-        }
-        if flags.contains(RegExpFlags::EXTENDED) {
-            s.push_byte(b'x');
-        }
-
-        Ok(AvmString::new(context.gc(), s).into())
     }
 
     /// Unwrap this object as a regexp.

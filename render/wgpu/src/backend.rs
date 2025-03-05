@@ -66,7 +66,7 @@ impl WgpuRenderBackend<SwapChainTarget> {
         } else {
             wgpu::Backends::GL
         };
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends,
             ..Default::default()
         });
@@ -101,7 +101,7 @@ impl WgpuRenderBackend<SwapChainTarget> {
                 format_list(&get_backend_names(backend), "and")
             );
         }
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: backend,
             ..Default::default()
         });
@@ -148,7 +148,7 @@ impl WgpuRenderBackend<crate::target::TextureTarget> {
                 format_list(&get_backend_names(backend), "and")
             );
         }
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: backend,
             ..Default::default()
         });
@@ -640,14 +640,14 @@ impl<T: RenderTarget + 'static> RenderBackend for WgpuRenderBackend<T> {
             });
 
         self.descriptors.queue.write_texture(
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture: &texture,
                 mip_level: 0,
                 origin: Default::default(),
                 aspect: wgpu::TextureAspect::All,
             },
             bitmap.data(),
-            wgpu::ImageDataLayout {
+            wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(4 * extent.width),
                 rows_per_image: None,
@@ -656,7 +656,7 @@ impl<T: RenderTarget + 'static> RenderBackend for WgpuRenderBackend<T> {
         );
 
         let handle = BitmapHandle(Arc::new(Texture {
-            texture: Arc::new(texture),
+            texture,
             bind_linear: Default::default(),
             bind_nearest: Default::default(),
             copy_count: Cell::new(0),
@@ -687,8 +687,9 @@ impl<T: RenderTarget + 'static> RenderBackend for WgpuRenderBackend<T> {
             depth_or_array_layers: 1,
         };
 
+        self.active_frame.submit_direct(&self.descriptors);
         self.descriptors.queue.write_texture(
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture: &texture.texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d {
@@ -700,7 +701,7 @@ impl<T: RenderTarget + 'static> RenderBackend for WgpuRenderBackend<T> {
             },
             &bitmap.data()[(region.y_min * texture.texture.width() * 4) as usize
                 ..(region.y_max * texture.texture.width() * 4) as usize],
-            wgpu::ImageDataLayout {
+            wgpu::TexelCopyBufferLayout {
                 offset: (region.x_min * 4) as wgpu::BufferAddress,
                 bytes_per_row: Some(4 * texture.texture.width()),
                 rows_per_image: None,
@@ -820,13 +821,13 @@ impl<T: RenderTarget + 'static> RenderBackend for WgpuRenderBackend<T> {
             filter,
         );
         self.active_frame.command_encoder.copy_texture_to_texture(
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture: applied_filter.color_texture(),
                 mip_level: 0,
                 origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
                 aspect: Default::default(),
             },
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture: &dest_texture.texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d {
@@ -911,7 +912,7 @@ impl<T: RenderTarget + 'static> RenderBackend for WgpuRenderBackend<T> {
                             | wgpu::TextureUsages::COPY_SRC,
                     });
                 BitmapHandle(Arc::new(Texture {
-                    texture: Arc::new(texture),
+                    texture,
                     bind_linear: Default::default(),
                     bind_nearest: Default::default(),
                     copy_count: Cell::new(0),
@@ -1071,7 +1072,7 @@ impl<T: RenderTarget + 'static> RenderBackend for WgpuRenderBackend<T> {
                     | wgpu::TextureUsages::COPY_SRC,
             });
         Ok(BitmapHandle(Arc::new(Texture {
-            texture: Arc::new(texture),
+            texture,
             bind_linear: Default::default(),
             bind_nearest: Default::default(),
             copy_count: Cell::new(0),
@@ -1169,9 +1170,9 @@ pub enum RenderTargetMode {
     // we will blend with the previous contents of the texture.
     // This is used in `render_offscreen`, as we need to blend with the previous
     // contents of our `BitmapData` texture
-    FreshWithTexture(Arc<wgpu::Texture>),
+    FreshWithTexture(wgpu::Texture),
     // Use the provided texture as our frame buffer, and clear it with the given color.
-    ExistingWithColor(Arc<wgpu::Texture>, wgpu::Color),
+    ExistingWithColor(wgpu::Texture, wgpu::Color),
 }
 
 impl RenderTargetMode {

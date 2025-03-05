@@ -1,6 +1,7 @@
 //! Object representation for `Proxy`.
 
 use crate::avm2::activation::Activation;
+use crate::avm2::globals::methods::flash_utils_proxy as proxy_methods;
 use crate::avm2::object::script_object::ScriptObjectData;
 use crate::avm2::object::{ClassObject, Object, ObjectPtr, QNameObject, TObject};
 use crate::avm2::string::AvmString;
@@ -9,6 +10,7 @@ use crate::avm2::Error;
 use crate::avm2::Multiname;
 use core::fmt;
 use gc_arena::{Collect, Gc, GcWeak};
+use ruffle_macros::istr;
 
 /// A class instance allocator that allocates Proxy objects.
 pub fn proxy_allocator<'gc>(
@@ -17,11 +19,7 @@ pub fn proxy_allocator<'gc>(
 ) -> Result<Object<'gc>, Error<'gc>> {
     let base = ScriptObjectData::new(class);
 
-    Ok(ProxyObject(Gc::new(
-        activation.context.gc_context,
-        ProxyObjectData { base },
-    ))
-    .into())
+    Ok(ProxyObject(Gc::new(activation.gc(), ProxyObjectData { base })).into())
 }
 
 #[derive(Clone, Collect, Copy)]
@@ -70,9 +68,10 @@ impl<'gc> TObject<'gc> for ProxyObject<'gc> {
         multiname: &Multiname<'gc>,
         activation: &mut Activation<'_, 'gc>,
     ) -> Result<Value<'gc>, Error<'gc>> {
-        let qname = QNameObject::from_name(activation, multiname.clone())?;
-        let prop = Multiname::new(activation.avm2().namespaces.proxy, "getProperty");
-        self.call_property(&prop, &[qname.into()], activation)
+        let self_val = Value::from(self);
+
+        let qname = QNameObject::from_name(activation, multiname.clone());
+        self_val.call_method(proxy_methods::GET_PROPERTY, &[qname.into()], activation)
     }
 
     fn set_property_local(
@@ -81,9 +80,14 @@ impl<'gc> TObject<'gc> for ProxyObject<'gc> {
         value: Value<'gc>,
         activation: &mut Activation<'_, 'gc>,
     ) -> Result<(), Error<'gc>> {
-        let qname = QNameObject::from_name(activation, multiname.clone())?;
-        let prop = Multiname::new(activation.avm2().namespaces.proxy, "setProperty");
-        self.call_property(&prop, &[qname.into(), value], activation)?;
+        let self_val = Value::from(self);
+
+        let qname = QNameObject::from_name(activation, multiname.clone());
+        self_val.call_method(
+            proxy_methods::SET_PROPERTY,
+            &[qname.into(), value],
+            activation,
+        )?;
 
         Ok(())
     }
@@ -94,12 +98,13 @@ impl<'gc> TObject<'gc> for ProxyObject<'gc> {
         arguments: &[Value<'gc>],
         activation: &mut Activation<'_, 'gc>,
     ) -> Result<Value<'gc>, Error<'gc>> {
-        let qname = QNameObject::from_name(activation, multiname.clone())?;
-        let prop = Multiname::new(activation.avm2().namespaces.proxy, "callProperty");
+        let self_val = Value::from(self);
+
+        let qname = QNameObject::from_name(activation, multiname.clone());
 
         let mut args = vec![qname.into()];
         args.extend_from_slice(arguments);
-        self.call_property(&prop, &args, activation)
+        self_val.call_method(proxy_methods::CALL_PROPERTY, &args, activation)
     }
 
     fn delete_property_local(
@@ -107,11 +112,12 @@ impl<'gc> TObject<'gc> for ProxyObject<'gc> {
         activation: &mut Activation<'_, 'gc>,
         multiname: &Multiname<'gc>,
     ) -> Result<bool, Error<'gc>> {
-        let qname = QNameObject::from_name(activation, multiname.clone())?;
-        let prop = Multiname::new(activation.avm2().namespaces.proxy, "deleteProperty");
+        let self_val = Value::from(self);
 
-        Ok(self
-            .call_property(&prop, &[qname.into()], activation)?
+        let qname = QNameObject::from_name(activation, multiname.clone());
+
+        Ok(self_val
+            .call_method(proxy_methods::DELETE_PROPERTY, &[qname.into()], activation)?
             .coerce_to_boolean())
     }
 
@@ -120,14 +126,12 @@ impl<'gc> TObject<'gc> for ProxyObject<'gc> {
         activation: &mut Activation<'_, 'gc>,
         name: &Multiname<'gc>,
     ) -> Result<bool, Error<'gc>> {
-        let prop = Multiname::new(activation.avm2().namespaces.proxy, "hasProperty");
-        Ok(self
-            .call_property(
-                &prop,
-                &[name
-                    .local_name()
-                    .map(Value::from)
-                    .unwrap_or_else(|| "*".into())],
+        let self_val = Value::from(self);
+
+        Ok(self_val
+            .call_method(
+                proxy_methods::HAS_PROPERTY,
+                &[name.local_name().unwrap_or_else(|| istr!("*")).into()],
                 activation,
             )?
             .coerce_to_boolean())
@@ -135,26 +139,31 @@ impl<'gc> TObject<'gc> for ProxyObject<'gc> {
 
     fn has_own_property_string(
         self,
-        name: impl Into<AvmString<'gc>>,
+        name: AvmString<'gc>,
         activation: &mut Activation<'_, 'gc>,
     ) -> Result<bool, Error<'gc>> {
-        let name = name.into();
-        let prop = Multiname::new(activation.avm2().namespaces.proxy, "hasProperty");
-        Ok(self
-            .call_property(&prop, &[name.into()], activation)?
+        let self_val = Value::from(self);
+
+        Ok(self_val
+            .call_method(proxy_methods::HAS_PROPERTY, &[name.into()], activation)?
             .coerce_to_boolean())
     }
 
+    // FIXME: The AS-side Proxy.nextNameIndex returns an int, so this should return an i32
     fn get_next_enumerant(
         self,
         last_index: u32,
         activation: &mut Activation<'_, 'gc>,
-    ) -> Result<Option<u32>, Error<'gc>> {
-        let prop = Multiname::new(activation.avm2().namespaces.proxy, "nextNameIndex");
-        Ok(Some(
-            self.call_property(&prop, &[last_index.into()], activation)?
-                .coerce_to_u32(activation)?,
-        ))
+    ) -> Result<u32, Error<'gc>> {
+        let self_val = Value::from(self);
+
+        self_val
+            .call_method(
+                proxy_methods::NEXT_NAME_INDEX,
+                &[last_index.into()],
+                activation,
+            )?
+            .coerce_to_u32(activation)
     }
 
     fn get_enumerant_name(
@@ -162,8 +171,9 @@ impl<'gc> TObject<'gc> for ProxyObject<'gc> {
         index: u32,
         activation: &mut Activation<'_, 'gc>,
     ) -> Result<Value<'gc>, Error<'gc>> {
-        let prop = Multiname::new(activation.avm2().namespaces.proxy, "nextName");
-        self.call_property(&prop, &[index.into()], activation)
+        let self_val = Value::from(self);
+
+        self_val.call_method(proxy_methods::NEXT_NAME, &[index.into()], activation)
     }
 
     fn get_enumerant_value(
@@ -171,7 +181,8 @@ impl<'gc> TObject<'gc> for ProxyObject<'gc> {
         index: u32,
         activation: &mut Activation<'_, 'gc>,
     ) -> Result<Value<'gc>, Error<'gc>> {
-        let prop = Multiname::new(activation.avm2().namespaces.proxy, "nextValue");
-        self.call_property(&prop, &[index.into()], activation)
+        let self_val = Value::from(self);
+
+        self_val.call_method(proxy_methods::NEXT_VALUE, &[index.into()], activation)
     }
 }

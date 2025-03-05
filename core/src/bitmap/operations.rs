@@ -421,10 +421,12 @@ pub fn copy_channel<'gc>(
     let target = target.sync(renderer);
     let mut write = target.write(mc);
 
-    for y in 0..dest_region.height() {
-        for x in 0..dest_region.width() {
+    for y in 0..dest_region.height().min(source_region.height()) {
+        for x in 0..dest_region.width().min(source_region.width()) {
             let dst_x = dest_region.x_min + x;
             let dst_y = dest_region.y_min + y;
+            let src_x = source_region.x_min + x;
+            let src_y = source_region.y_min + y;
 
             let original_color: u32 = write
                 .get_pixel32_raw(dst_x, dst_y)
@@ -432,22 +434,28 @@ pub fn copy_channel<'gc>(
                 .into();
 
             let source_color: u32 = if let Some(source) = &source {
-                source.get_pixel32_raw(x, y).to_un_multiplied_alpha().into()
+                source
+                    .get_pixel32_raw(src_x, src_y)
+                    .to_un_multiplied_alpha()
+                    .into()
             } else {
-                write.get_pixel32_raw(x, y).to_un_multiplied_alpha().into()
+                write
+                    .get_pixel32_raw(src_x, src_y)
+                    .to_un_multiplied_alpha()
+                    .into()
             };
 
             let source_part = (source_color >> channel_shift) & 0xFF;
 
             let result_color: u32 = match dest_channel {
                 // red
-                1 => (original_color & 0xFF00FFFF) | source_part << 16,
+                1 => (original_color & 0xFF00FFFF) | (source_part << 16),
                 // green
-                2 => (original_color & 0xFFFF00FF) | source_part << 8,
+                2 => (original_color & 0xFFFF00FF) | (source_part << 8),
                 // blue
                 4 => (original_color & 0xFFFFFF00) | source_part,
                 // alpha
-                8 => (original_color & 0x00FFFFFF) | source_part << 24,
+                8 => (original_color & 0x00FFFFFF) | (source_part << 24),
                 _ => original_color,
             };
 
@@ -1051,7 +1059,7 @@ pub fn copy_pixels<'gc>(
     }
 
     copy_on_cpu(
-        context.gc_context,
+        context.gc(),
         context.renderer,
         source_bitmap,
         target,
@@ -1112,7 +1120,7 @@ pub fn copy_pixels_with_alpha_source<'gc>(
     };
 
     let target = target.sync(context.renderer);
-    let mut write = target.write(context.gc_context);
+    let mut write = target.write(context.gc());
 
     for src_y in src_min_y..(src_min_y + src_height) {
         for src_x in src_min_x..(src_min_x + src_width) {
@@ -1197,7 +1205,7 @@ pub fn copy_pixels_with_alpha_source<'gc>(
         ((dest_min_x + src_width), (dest_min_y + src_height)),
     );
     dirty_region.clamp(write.width(), write.height());
-    write.set_cpu_dirty(context.gc_context, dirty_region);
+    write.set_cpu_dirty(context.gc(), dirty_region);
 }
 
 pub fn apply_filter<'gc>(
@@ -1236,7 +1244,7 @@ pub fn apply_filter<'gc>(
 
         // Until we support these filters, treat this like a copy
         copy_on_cpu(
-            context.gc_context,
+            context.gc(),
             context.renderer,
             source,
             target,
@@ -1247,9 +1255,9 @@ pub fn apply_filter<'gc>(
         return;
     }
 
-    let source_handle = source.bitmap_handle(context.gc_context, context.renderer);
-    let (target, _) = target.overwrite_cpu_pixels_from_gpu(context.gc_context);
-    let mut write = target.write(context.gc_context);
+    let source_handle = source.bitmap_handle(context.gc(), context.renderer);
+    let (target, _) = target.overwrite_cpu_pixels_from_gpu(context.gc());
+    let mut write = target.write(context.gc());
     let dest = write.bitmap_handle(context.renderer).unwrap();
 
     let sync_handle = context.renderer.apply_filter(
@@ -1262,7 +1270,7 @@ pub fn apply_filter<'gc>(
     );
     let region = PixelRegion::for_whole_size(write.width(), write.height());
     match sync_handle {
-        Some(sync_handle) => write.set_gpu_dirty(context.gc_context, sync_handle, region),
+        Some(sync_handle) => write.set_gpu_dirty(context.gc(), sync_handle, region),
         None => {
             tracing::warn!("BitmapData.apply_filter: Renderer not yet implemented")
         }
@@ -1377,7 +1385,7 @@ fn blend_and_transform<'gc>(
 ) {
     if source.ptr_eq(dest) {
         let dest = dest.sync(context.renderer);
-        let mut write = dest.write(context.gc_context);
+        let mut write = dest.write(context.gc());
 
         for y in 0..dest_region.height() {
             for x in 0..dest_region.width() {
@@ -1395,10 +1403,10 @@ fn blend_and_transform<'gc>(
             }
         }
 
-        write.set_cpu_dirty(context.gc_context, dest_region);
+        write.set_cpu_dirty(context.gc(), dest_region);
     } else {
         let dest = dest.sync(context.renderer);
-        let mut dest_write = dest.write(context.gc_context);
+        let mut dest_write = dest.write(context.gc());
         let source_read = source.read_area(source_region, context.renderer);
         let opaque = !dest_write.transparency();
 
@@ -1418,7 +1426,7 @@ fn blend_and_transform<'gc>(
             }
         }
 
-        dest_write.set_cpu_dirty(context.gc_context, dest_region);
+        dest_write.set_cpu_dirty(context.gc(), dest_region);
     }
 }
 
@@ -1502,7 +1510,7 @@ pub fn draw<'gc>(
                     );
                 } else {
                     copy_on_cpu(
-                        context.gc_context,
+                        context.gc(),
                         context.renderer,
                         *source,
                         target,
@@ -1577,7 +1585,7 @@ pub fn draw<'gc>(
         render_context.commands.pop_mask();
     }
 
-    let handle = target.bitmap_handle(render_context.gc_context, render_context.renderer);
+    let handle = target.bitmap_handle(render_context.gc(), render_context.renderer);
 
     let commands = if blend_mode == BlendMode::Normal {
         render_context.commands
@@ -1590,8 +1598,8 @@ pub fn draw<'gc>(
         commands
     };
 
-    let (target, include_dirty_area) = target.overwrite_cpu_pixels_from_gpu(context.gc_context);
-    let mut write = target.write(context.gc_context);
+    let (target, include_dirty_area) = target.overwrite_cpu_pixels_from_gpu(context.gc());
+    let mut write = target.write(context.gc());
     // If we have another dirty area to preserve, expand this to include it
     if let Some(old) = include_dirty_area {
         dirty_region.union(old);
@@ -1607,7 +1615,7 @@ pub fn draw<'gc>(
 
     match image {
         Some(sync_handle) => {
-            write.set_gpu_dirty(context.gc_context, sync_handle, dirty_region);
+            write.set_gpu_dirty(context.gc(), sync_handle, dirty_region);
             Ok(())
         }
         None => Err(BitmapDataDrawError::Unimplemented),
@@ -1659,10 +1667,10 @@ pub fn set_vector<'gc>(
     let region = PixelRegion::for_region(x_min, y_min, width as u32, height as u32);
 
     let bitmap_data = target.sync(activation.context.renderer);
-    let mut bitmap_data = bitmap_data.write(activation.context.gc_context);
+    let mut bitmap_data = bitmap_data.write(activation.gc());
     let transparency = bitmap_data.transparency();
     let mut iter = vector.iter();
-    bitmap_data.set_cpu_dirty(activation.context.gc_context, region);
+    bitmap_data.set_cpu_dirty(activation.gc(), region);
     for y in region.y_min..region.y_max {
         for x in region.x_min..region.x_max {
             let color = iter

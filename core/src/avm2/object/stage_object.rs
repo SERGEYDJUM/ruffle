@@ -49,7 +49,7 @@ impl<'gc> StageObject<'gc> {
         class: ClassObject<'gc>,
     ) -> Result<Self, Error<'gc>> {
         let instance = Self(Gc::new(
-            activation.context.gc_context,
+            activation.gc(),
             StageObjectData {
                 base: ScriptObjectData::new(class),
                 display_object,
@@ -71,7 +71,7 @@ impl<'gc> StageObject<'gc> {
     ) -> Result<Self, Error<'gc>> {
         let this = Self::for_display_object(activation, display_object, class)?;
 
-        class.call_super_init(this.into(), &[], activation)?;
+        class.call_init(this.into(), &[], activation)?;
 
         Ok(this)
     }
@@ -86,7 +86,7 @@ impl<'gc> StageObject<'gc> {
     ) -> Result<Self, Error<'gc>> {
         let this = Self::for_display_object(activation, display_object, class)?;
 
-        class.call_super_init(this.into(), args, activation)?;
+        class.call_init(this.into(), args, activation)?;
 
         Ok(this)
     }
@@ -98,7 +98,7 @@ impl<'gc> StageObject<'gc> {
     ) -> Result<Self, Error<'gc>> {
         let class = activation.avm2().classes().graphics;
         let this = Self(Gc::new(
-            activation.context.gc_context,
+            activation.gc(),
             StageObjectData {
                 base: ScriptObjectData::new(class),
                 display_object,

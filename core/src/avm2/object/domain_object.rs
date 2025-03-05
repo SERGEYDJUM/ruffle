@@ -18,7 +18,7 @@ pub fn application_domain_allocator<'gc>(
     let base = ScriptObjectData::new(class);
 
     Ok(DomainObject(Gc::new(
-        activation.context.gc_context,
+        activation.gc(),
         DomainObjectData {
             base,
             domain: Lock::new(domain),
@@ -70,7 +70,7 @@ impl<'gc> DomainObject<'gc> {
         let class = activation.avm2().classes().application_domain;
         let base = ScriptObjectData::new(class);
         let this: Object<'gc> = DomainObject(Gc::new(
-            activation.context.gc_context,
+            activation.gc(),
             DomainObjectData {
                 base,
                 domain: Lock::new(domain),
@@ -83,7 +83,7 @@ impl<'gc> DomainObject<'gc> {
         class
             .superclass_object()
             .unwrap()
-            .call_super_init(this.into(), &[], activation)?;
+            .call_init(this.into(), &[], activation)?;
         Ok(this)
     }
 }

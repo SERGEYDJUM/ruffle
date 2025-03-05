@@ -121,9 +121,9 @@ jobs:
 
       - name: Install WiX
         run: |
-          dotnet tool install --global wix
-          wix extension add -g WixToolset.UI.wixext
-          wix extension add -g WixToolset.Util.wixext
+          dotnet tool install --global wix --version 5.0.2
+          wix extension add -g WixToolset.UI.wixext/5.0.2
+          wix extension add -g WixToolset.Util.wixext/5.0.2
         if: runner.os == 'Windows'
 
       - name: Cargo build
@@ -332,22 +332,23 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.81.0
+          toolchain: stable
           targets: wasm32-unknown-unknown
+          components: rust-src
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           registry-url: https://registry.npmjs.org
 
       # wasm-bindgen-cli version must match wasm-bindgen crate version.
       # Be sure to update in test_web.yml, Cargo.toml, web/docker/Dockerfile,
       # and web/README.md as well.
       - name: Install wasm-bindgen
-        run: cargo install wasm-bindgen-cli --version 0.2.95
+        run: cargo install wasm-bindgen-cli --version 0.2.100
 
       # Keep the version number in sync in all workflows,
       # and in the extension builder Dockerfile!
@@ -355,7 +356,7 @@ jobs:
         uses: sigoden/install-binary@v1
         with:
           repo: WebAssembly/binaryen
-          tag: version_120
+          tag: version_122
           name: wasm-opt
 
       - name: Install node packages
@@ -590,7 +591,7 @@ jobs:
           -e "s/@SHA512SUM@/$(sha512sum ${{ needs.create-nightly-release.outputs.package_prefix }}-linux-x86_64.tar.gz | cut -d' ' -f1)/"
 
       - name: Publish AUR package
-        uses: KSXGitHub/github-actions-deploy-aur@v3.0.1
+        uses: KSXGitHub/github-actions-deploy-aur@v4.1.1
         with:
           pkgname: ruffle-nightly-bin
           pkgbuild: desktop/packages/linux/aur/ruffle-nightly-bin/PKGBUILD

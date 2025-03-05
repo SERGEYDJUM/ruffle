@@ -20,7 +20,7 @@ pub fn sound_channel_allocator<'gc>(
     let base = ScriptObjectData::new(class);
 
     Ok(SoundChannelObject(Gc::new(
-        activation.context.gc_context,
+        activation.gc(),
         SoundChannelObjectData {
             base,
             sound_channel_data: RefCell::new(SoundChannelData::NotLoaded {
@@ -85,7 +85,7 @@ impl<'gc> SoundChannelObject<'gc> {
         let base = ScriptObjectData::new(class);
 
         let sound_object = SoundChannelObject(Gc::new(
-            activation.context.gc_context,
+            activation.gc(),
             SoundChannelObjectData {
                 base,
                 sound_channel_data: RefCell::new(SoundChannelData::NotLoaded {
@@ -96,7 +96,7 @@ impl<'gc> SoundChannelObject<'gc> {
             },
         ));
 
-        class.call_super_init(Value::Object(sound_object.into()), &[], activation)?;
+        class.call_init(Value::Object(sound_object.into()), &[], activation)?;
 
         Ok(sound_object)
     }

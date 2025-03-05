@@ -1,16 +1,20 @@
 use crate::avm2::bytearray::ByteArrayStorage;
 use crate::avm2::error::{argument_error, error, make_error_2037, make_error_2097};
-pub use crate::avm2::object::file_reference_allocator;
+use crate::avm2::globals::slots::flash_net_file_filter as file_filter_slots;
 use crate::avm2::object::{ByteArrayObject, DateObject, FileReference};
-use crate::avm2::{Activation, Avm2, Error, EventObject, Object, TObject, Value};
+use crate::avm2::{Activation, Avm2, Error, EventObject, TObject, Value};
 use crate::backend::ui::FileFilter;
 use crate::string::AvmString;
 
+pub use crate::avm2::object::file_reference_allocator;
+
 pub fn get_creation_date<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_file_reference().unwrap();
 
     let creation_date = match *this.file_reference() {
@@ -29,9 +33,11 @@ pub fn get_creation_date<'gc>(
 
 pub fn get_data<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_file_reference().unwrap();
 
     let bytearray = match *this.file_reference() {
@@ -49,9 +55,11 @@ pub fn get_data<'gc>(
 
 pub fn get_modification_date<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_file_reference().unwrap();
 
     let modification_date = match *this.file_reference() {
@@ -70,16 +78,18 @@ pub fn get_modification_date<'gc>(
 
 pub fn get_name<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_file_reference().unwrap();
 
     let name = match *this.file_reference() {
         FileReference::None => return Err(make_error_2037(activation)),
         FileReference::FileDialogResult(ref dialog_result) => {
             let name = dialog_result.file_name().unwrap_or_default();
-            AvmString::new_utf8(activation.context.gc_context, name).into()
+            AvmString::new_utf8(activation.gc(), name).into()
         }
     };
 
@@ -88,9 +98,11 @@ pub fn get_name<'gc>(
 
 pub fn get_size<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_file_reference().unwrap();
 
     let size = match *this.file_reference() {
@@ -103,16 +115,18 @@ pub fn get_size<'gc>(
 
 pub fn get_type<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_file_reference().unwrap();
 
     let type_ = match *this.file_reference() {
         FileReference::None => return Err(make_error_2037(activation)),
         FileReference::FileDialogResult(ref dialog_result) => {
             let type_ = dialog_result.file_type().unwrap_or_default();
-            AvmString::new_utf8(activation.context.gc_context, type_).into()
+            AvmString::new_utf8(activation.gc(), type_).into()
         }
     };
 
@@ -121,9 +135,11 @@ pub fn get_type<'gc>(
 
 pub fn browse<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_file_reference().unwrap();
 
     let mut filters = Vec::new();
@@ -140,9 +156,9 @@ pub fn browse<'gc>(
                         return Err(make_error_2097(activation));
                     }
 
-                    let description = obj.get_public_property("description", activation)?;
-                    let extension = obj.get_public_property("extension", activation)?;
-                    let mac_type = obj.get_public_property("macType", activation)?;
+                    let description = obj.get_slot(file_filter_slots::_DESCRIPTION);
+                    let extension = obj.get_slot(file_filter_slots::_EXTENSION);
+                    let mac_type = obj.get_slot(file_filter_slots::_MAC_TYPE);
 
                     // The description and extension must be non-empty strings.
                     match (description, extension) {
@@ -191,9 +207,11 @@ pub fn browse<'gc>(
 
 pub fn load<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_file_reference().unwrap();
 
     // Somewhat unexpectedly, we don't need to load anything here, because
@@ -204,17 +222,18 @@ pub fn load<'gc>(
         FileReference::FileDialogResult(ref dialog_result) => dialog_result.size().unwrap_or(0),
     };
 
+    let size = size as usize;
+
     let open_evt = EventObject::bare_default_event(activation.context, "open");
     Avm2::dispatch_event(activation.context, open_evt, this.into());
 
-    let progress_evt = EventObject::progress_event(activation, "progress", 0, size, false, false);
+    let progress_evt = EventObject::progress_event(activation, "progress", 0, size);
     Avm2::dispatch_event(activation.context, progress_evt, this.into());
 
     let open_evt2 = EventObject::bare_default_event(activation.context, "open");
     Avm2::dispatch_event(activation.context, open_evt2, this.into());
 
-    let progress_evt2 =
-        EventObject::progress_event(activation, "progress", size, size, false, false);
+    let progress_evt2 = EventObject::progress_event(activation, "progress", size, size);
     Avm2::dispatch_event(activation.context, progress_evt2, this.into());
 
     this.set_loaded(true);
@@ -227,9 +246,11 @@ pub fn load<'gc>(
 
 pub fn save<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_file_reference().unwrap();
     let data = args[0];
 

@@ -134,7 +134,7 @@ impl PixelBenderTypeExt for PixelBenderType {
         };
         let vals: Vec<Value<'gc>> = match self {
             PixelBenderType::TString(string) => {
-                return Ok(AvmString::new_utf8(activation.context.gc_context, string).into());
+                return Ok(AvmString::new_utf8(activation.gc(), string).into());
             }
             PixelBenderType::TInt(i) => {
                 if tint_as_int {
@@ -157,6 +157,6 @@ impl PixelBenderTypeExt for PixelBenderType {
             }
         };
         let storage = ArrayStorage::from_args(&vals);
-        Ok(ArrayObject::from_storage(activation, storage)?.into())
+        Ok(ArrayObject::from_storage(activation, storage).into())
     }
 }

@@ -3,6 +3,7 @@
 use std::cell::Ref;
 
 use crate::avm2::activation::Activation;
+use crate::avm2::bytearray::ByteArrayStorage;
 use crate::avm2::object::{ByteArrayObject, TObject};
 use crate::avm2::property_map::PropertyMap;
 use crate::avm2::script::Script;
@@ -118,7 +119,7 @@ impl<'gc> Domain<'gc> {
     /// fully allocated.
     pub fn movie_domain(activation: &mut Activation<'_, 'gc>, parent: Domain<'gc>) -> Domain<'gc> {
         let this = Self(GcCell::new(
-            activation.context.gc_context,
+            activation.gc(),
             DomainData {
                 defs: PropertyMap::new(),
                 classes: PropertyMap::new(),
@@ -133,7 +134,7 @@ impl<'gc> Domain<'gc> {
 
         parent
             .0
-            .write(activation.context.gc_context)
+            .write(activation.gc())
             .children
             .push(DomainWeak(GcCell::downgrade(this.0)));
 
@@ -182,13 +183,13 @@ impl<'gc> Domain<'gc> {
     pub fn get_defining_script(
         self,
         multiname: &Multiname<'gc>,
-    ) -> Result<Option<(QName<'gc>, Script<'gc>)>, Error<'gc>> {
+    ) -> Option<(QName<'gc>, Script<'gc>)> {
         let read = self.0.read();
 
         if let Some(name) = multiname.local_name() {
             if let Some((ns, script)) = read.defs.get_with_ns_for_multiname(multiname) {
                 let qname = QName::new(ns, name);
-                return Ok(Some((qname, *script)));
+                return Some((qname, *script));
             }
         }
 
@@ -196,7 +197,7 @@ impl<'gc> Domain<'gc> {
             return parent.get_defining_script(multiname);
         }
 
-        Ok(None)
+        None
     }
 
     fn get_class_inner(self, multiname: &Multiname<'gc>) -> Option<Class<'gc>> {
@@ -242,7 +243,7 @@ impl<'gc> Domain<'gc> {
         activation: &mut Activation<'_, 'gc>,
         multiname: &Multiname<'gc>,
     ) -> Result<(QName<'gc>, Script<'gc>), Error<'gc>> {
-        match self.get_defining_script(multiname)? {
+        match self.get_defining_script(multiname) {
             Some(val) => Ok(val),
             None => Err(Error::AvmError(crate::avm2::error::reference_error(
                 activation,
@@ -266,7 +267,7 @@ impl<'gc> Domain<'gc> {
         let (name, script) = self.find_defining_script(activation, &name.into())?;
         let globals = script.globals(activation.context)?;
 
-        globals.get_property(&name.into(), activation)
+        Value::from(globals).get_property(&name.into(), activation)
     }
 
     /// Retrieve a value from this domain, with special handling for 'Vector.<SomeType>'.
@@ -286,7 +287,7 @@ impl<'gc> Domain<'gc> {
             let start = name.find(WStr::from_units(b".<")).unwrap();
 
             type_name = Some(AvmString::new(
-                activation.context.gc_context,
+                activation.gc(),
                 &name[(start + 2)..(name.len() - 1)],
             ));
             name = "__AS3__.vec::Vector".into();
@@ -321,7 +322,7 @@ impl<'gc> Domain<'gc> {
     /// Export a definition from a script into the current application domain.
     ///
     /// This does nothing if the definition already exists in this domain or a parent.
-    pub fn export_definition(&mut self, name: QName<'gc>, script: Script<'gc>, mc: &Mutation<'gc>) {
+    pub fn export_definition(self, name: QName<'gc>, script: Script<'gc>, mc: &Mutation<'gc>) {
         if self.has_definition(name) {
             return;
         }
@@ -364,7 +365,7 @@ impl<'gc> Domain<'gc> {
         activation: &mut Activation<'_, 'gc>,
         domain_memory: Option<ByteArrayObject<'gc>>,
     ) -> Result<(), Error<'gc>> {
-        let mut write = self.0.write(activation.context.gc_context);
+        let mut write = self.0.write(activation.gc());
         let memory = if let Some(domain_memory) = domain_memory {
             if domain_memory.storage().len() < MIN_DOMAIN_MEMORY_LENGTH {
                 return Err(Error::AvmError(error(
@@ -393,15 +394,12 @@ impl<'gc> Domain<'gc> {
         self,
         activation: &mut Activation<'_, 'gc>,
     ) -> Result<(), Error<'gc>> {
-        let bytearray_class = activation.avm2().classes().bytearray;
+        let initial_data = vec![0; MIN_DOMAIN_MEMORY_LENGTH];
+        let storage = ByteArrayStorage::from_vec(initial_data);
 
-        let domain_memory = bytearray_class.construct(activation, &[])?;
-        domain_memory
-            .as_bytearray_mut()
-            .unwrap()
-            .set_length(MIN_DOMAIN_MEMORY_LENGTH);
+        let domain_memory = ByteArrayObject::from_storage(activation, storage)?;
 
-        let mut write = self.0.write(activation.context.gc_context);
+        let mut write = self.0.write(activation.gc());
 
         assert!(
             write.domain_memory.is_none(),
@@ -412,10 +410,8 @@ impl<'gc> Domain<'gc> {
             "Already initialized domain memory!"
         );
 
-        let bytearray = domain_memory.as_bytearray_object().unwrap();
-
-        write.domain_memory = Some(bytearray);
-        write.default_domain_memory = Some(bytearray);
+        write.domain_memory = Some(domain_memory);
+        write.default_domain_memory = Some(domain_memory);
 
         Ok(())
     }

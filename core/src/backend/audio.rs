@@ -4,6 +4,7 @@ use crate::{
     buffer::Substream,
     context::UpdateContext,
     display_object::{self, DisplayObject, MovieClip, TDisplayObject},
+    string::AvmString,
 };
 use downcast_rs::Downcast;
 use gc_arena::Collect;
@@ -379,6 +380,8 @@ impl<'gc> AudioManager<'gc> {
 
     /// Update state of active sounds. Should be called once per frame.
     pub fn update_sounds(context: &mut UpdateContext<'gc>) {
+        let mc = context.gc();
+
         // We can't use 'context' to construct an event inside the
         // 'retain()' closure, so we queue the events up here, and fire
         // them after running 'retain()'
@@ -409,11 +412,13 @@ impl<'gc> AudioManager<'gc> {
 
                     // Fire soundComplete event.
                     if let Some(root) = context.stage.root_clip() {
+                        let method_name = AvmString::new_utf8(mc, "onSoundComplete");
+
                         context.action_queue.queue_action(
                             root,
                             crate::context::ActionType::Method {
                                 object,
-                                name: "onSoundComplete",
+                                name: method_name,
                                 args: vec![],
                             },
                             false,

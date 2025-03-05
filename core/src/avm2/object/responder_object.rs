@@ -16,7 +16,7 @@ pub fn responder_allocator<'gc>(
     let base = ScriptObjectData::new(class);
 
     Ok(ResponderObject(Gc::new(
-        activation.context.gc(),
+        activation.gc(),
         ResponderObjectData {
             base,
             result: Lock::new(None),
@@ -86,7 +86,7 @@ impl<'gc> ResponderObject<'gc> {
         if let Some(function) = function {
             let mut activation = Activation::from_nothing(context);
             let value = crate::avm2::amf::deserialize_value(&mut activation, message)?;
-            function.call((*self).into(), &[value], &mut activation)?;
+            function.call(&mut activation, (*self).into(), &[value])?;
         }
 
         Ok(())

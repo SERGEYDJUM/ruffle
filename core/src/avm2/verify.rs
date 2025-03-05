@@ -1,7 +1,7 @@
 use crate::avm2::class::Class;
 use crate::avm2::error::{
     make_error_1014, make_error_1021, make_error_1025, make_error_1032, make_error_1054,
-    make_error_1107, verify_error,
+    make_error_1107, verify_error, Error1014Type,
 };
 use crate::avm2::method::{BytecodeMethod, ParamConfig, ResolvedParamConfig};
 use crate::avm2::multiname::Multiname;
@@ -282,6 +282,12 @@ pub fn verify_method<'gc>(
                         return Err(make_error_1025(activation, object_register));
                     } else if index_register >= max_locals {
                         return Err(make_error_1025(activation, index_register));
+                    } else if index_register == object_register {
+                        return Err(Error::AvmError(verify_error(
+                            activation,
+                            "Error #1124: OP_hasnext2 requires object and index to be distinct registers.",
+                            1124,
+                        )?));
                     }
                 }
 
@@ -324,6 +330,42 @@ pub fn verify_method<'gc>(
                             1078,
                         )?));
                     }
+                }
+
+                AbcOp::CallSuperVoid { index, num_args } => {
+                    // Split this `CallSuperVoid` into a `CallSuper` and a `Pop`;
+                    // this is possible because a `CallSuperVoid` is guaranteed
+                    // to take up at least 2 bytes.
+
+                    // See the comment on GetLex for more information.
+
+                    assert!(bytes_read > 1);
+                    byte_info[previous_position as usize] =
+                        ByteInfo::OpStart(AbcOp::CallSuper { index, num_args });
+                    byte_info[(previous_position + 1) as usize] =
+                        ByteInfo::OpStartNonJumpable(AbcOp::Pop);
+                }
+
+                AbcOp::GetGlobalSlot { index } => {
+                    if index == 0 {
+                        return Err(Error::AvmError(verify_error(
+                            activation,
+                            "Error #1026: Slot 0 exceeds slotCount",
+                            1026,
+                        )?));
+                    }
+
+                    // Split this `GetGlobalSlot` into a `GetGlobalScope` and a `GetSlot`;
+                    // this is possible because a `GetGlobalSlot` is guaranteed
+                    // to take up at least 2 bytes.
+
+                    // See the comment on GetLex for more information.
+
+                    assert!(bytes_read > 1);
+                    byte_info[previous_position as usize] =
+                        ByteInfo::OpStart(AbcOp::GetGlobalScope);
+                    byte_info[(previous_position + 1) as usize] =
+                        ByteInfo::OpStartNonJumpable(AbcOp::GetSlot { index });
                 }
 
                 AbcOp::GetLex { index } => {
@@ -375,7 +417,11 @@ pub fn verify_method<'gc>(
 
                     if multiname.has_lazy_component() {
                         // This matches FP's error message
-                        return Err(make_error_1014(activation, "[]".into()));
+                        return Err(make_error_1014(
+                            activation,
+                            Error1014Type::VerifyError,
+                            "[]".into(),
+                        ));
                     }
 
                     activation
@@ -384,9 +430,22 @@ pub fn verify_method<'gc>(
                         .ok_or_else(|| {
                             make_error_1014(
                                 activation,
-                                multiname.to_qualified_name(activation.context.gc_context),
+                                Error1014Type::VerifyError,
+                                multiname.to_qualified_name(activation.gc()),
                             )
                         })?;
+                }
+
+                AbcOp::GetSlot { index }
+                | AbcOp::SetSlot { index }
+                | AbcOp::SetGlobalSlot { index } => {
+                    if index == 0 {
+                        return Err(Error::AvmError(verify_error(
+                            activation,
+                            "Error #1026: Slot 0 exceeds slotCount",
+                            1026,
+                        )?));
+                    }
                 }
 
                 _ => {}
@@ -424,7 +483,11 @@ pub fn verify_method<'gc>(
 
             if pooled_type_name.has_lazy_component() {
                 // This matches FP's error message
-                return Err(make_error_1014(activation, "[]".into()));
+                return Err(make_error_1014(
+                    activation,
+                    Error1014Type::VerifyError,
+                    "[]".into(),
+                ));
             }
 
             let resolved_type = activation
@@ -433,7 +496,8 @@ pub fn verify_method<'gc>(
                 .ok_or_else(|| {
                     make_error_1014(
                         activation,
-                        pooled_type_name.to_qualified_name(activation.context.gc_context),
+                        Error1014Type::VerifyError,
+                        pooled_type_name.to_qualified_name(activation.gc()),
                     )
                 })?;
 
@@ -675,7 +739,11 @@ pub fn resolve_param_config<'gc>(
     for param in param_config {
         let resolved_class = if let Some(param_type_name) = param.param_type_name {
             if param_type_name.has_lazy_component() {
-                return Err(make_error_1014(activation, "[]".into()));
+                return Err(make_error_1014(
+                    activation,
+                    Error1014Type::VerifyError,
+                    "[]".into(),
+                ));
             }
 
             Some(
@@ -685,6 +753,7 @@ pub fn resolve_param_config<'gc>(
                     .ok_or_else(|| {
                         make_error_1014(
                             activation,
+                            Error1014Type::VerifyError,
                             param_type_name.to_qualified_name(activation.gc()),
                         )
                     })?,
@@ -694,7 +763,6 @@ pub fn resolve_param_config<'gc>(
         };
 
         resolved_param_config.push(ResolvedParamConfig {
-            param_name: param.param_name,
             param_type: resolved_class,
             default_value: param.default_value,
         });
@@ -709,7 +777,11 @@ fn resolve_return_type<'gc>(
 ) -> Result<Option<Class<'gc>>, Error<'gc>> {
     if let Some(return_type) = return_type {
         if return_type.has_lazy_component() {
-            return Err(make_error_1014(activation, "[]".into()));
+            return Err(make_error_1014(
+                activation,
+                Error1014Type::VerifyError,
+                "[]".into(),
+            ));
         }
 
         Ok(Some(
@@ -717,7 +789,11 @@ fn resolve_return_type<'gc>(
                 .domain()
                 .get_class(activation.context, &return_type)
                 .ok_or_else(|| {
-                    make_error_1014(activation, return_type.to_qualified_name(activation.gc()))
+                    make_error_1014(
+                        activation,
+                        Error1014Type::VerifyError,
+                        return_type.to_qualified_name(activation.gc()),
+                    )
                 })?,
         ))
     } else {
@@ -859,7 +935,9 @@ fn resolve_op<'gc>(
     op: AbcOp,
 ) -> Result<Op<'gc>, Error<'gc>> {
     Ok(match op {
-        AbcOp::PushByte { value } => Op::PushByte { value: value as i8 },
+        AbcOp::PushByte { value } => Op::PushShort {
+            value: value as i8 as i16,
+        },
         AbcOp::PushDouble { value } => {
             let value = pool_double(activation, translation_unit, value)?;
 
@@ -872,7 +950,7 @@ fn resolve_op<'gc>(
             Op::PushInt { value }
         }
         AbcOp::PushNamespace { value } => Op::PushNamespace { value },
-        AbcOp::PushNaN => Op::PushNaN,
+        AbcOp::PushNaN => Op::PushDouble { value: f64::NAN },
         AbcOp::PushNull => Op::PushNull,
         AbcOp::PushShort { value } => Op::PushShort { value },
         AbcOp::PushString { value } => {
@@ -931,13 +1009,8 @@ fn resolve_op<'gc>(
                 num_args,
             }
         }
-        AbcOp::CallSuperVoid { index, num_args } => {
-            let multiname = pool_multiname(activation, translation_unit, index)?;
-
-            Op::CallSuperVoid {
-                multiname,
-                num_args,
-            }
+        AbcOp::CallSuperVoid { .. } => {
+            unreachable!("Verifier emits CallSuper and Pop instead of CallSuperVoid")
         }
         AbcOp::ReturnValue => Op::ReturnValue,
         AbcOp::ReturnVoid => Op::ReturnVoid,
@@ -978,7 +1051,17 @@ fn resolve_op<'gc>(
         AbcOp::PopScope => Op::PopScope,
         AbcOp::GetOuterScope { index } => Op::GetOuterScope { index },
         AbcOp::GetScopeObject { index } => Op::GetScopeObject { index },
-        AbcOp::GetGlobalScope => Op::GetGlobalScope,
+        AbcOp::GetGlobalScope => {
+            // GetGlobalScope is equivalent to either GetScopeObject or GetOuterScope,
+            // depending on the outer scope stack size. Do this check here in the
+            // verifier instead of doing it at runtime.
+
+            if activation.outer().is_empty() {
+                Op::GetScopeObject { index: 0 }
+            } else {
+                Op::GetOuterScope { index: 0 }
+            }
+        }
         AbcOp::FindDef { index } => {
             let multiname = pool_multiname(activation, translation_unit, index)?;
             // Verifier guarantees that multiname was non-lazy
@@ -1006,7 +1089,9 @@ fn resolve_op<'gc>(
         // Turn 1-based representation into 0-based representation
         AbcOp::GetSlot { index } => Op::GetSlot { index: index - 1 },
         AbcOp::SetSlot { index } => Op::SetSlot { index: index - 1 },
-        AbcOp::GetGlobalSlot { index } => Op::GetGlobalSlot { index: index - 1 },
+        AbcOp::GetGlobalSlot { .. } => {
+            unreachable!("Verifier emits GetGlobalScope and GetSlot instead of GetGlobalSlot")
+        }
         AbcOp::SetGlobalSlot { index } => Op::SetGlobalSlot { index: index - 1 },
 
         AbcOp::Construct { num_args } => Op::Construct { num_args },

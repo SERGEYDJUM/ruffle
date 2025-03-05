@@ -4,12 +4,13 @@ use crate::avm2::activation::Activation;
 use crate::avm2::array::ArrayStorage;
 use crate::avm2::error::{syntax_error, type_error};
 use crate::avm2::globals::array::ArrayIter;
-use crate::avm2::object::{ArrayObject, FunctionObject, Object, TObject};
+use crate::avm2::object::{ArrayObject, FunctionObject, Object, ScriptObject, TObject};
 use crate::avm2::parameters::ParametersExt;
 use crate::avm2::value::Value;
 use crate::avm2::Error;
 use crate::ecma_conversions::f64_to_wrapping_i32;
 use crate::string::{AvmString, Units};
+use ruffle_macros::istr;
 use serde::Serialize;
 use serde_json::{Map as JsonObject, Value as JsonValue};
 use std::borrow::Cow;
@@ -18,11 +19,11 @@ use std::ops::Deref;
 fn deserialize_json_inner<'gc>(
     activation: &mut Activation<'_, 'gc>,
     json: JsonValue,
-    reviver: Option<Object<'gc>>,
+    reviver: Option<FunctionObject<'gc>>,
 ) -> Result<Value<'gc>, Error<'gc>> {
     Ok(match json {
         JsonValue::Null => Value::Null,
-        JsonValue::String(s) => AvmString::new_utf8(activation.context.gc_context, s).into(),
+        JsonValue::String(s) => AvmString::new_utf8(activation.gc(), s).into(),
         JsonValue::Bool(b) => b.into(),
         JsonValue::Number(number) => {
             let number = number.as_f64().unwrap();
@@ -33,19 +34,18 @@ fn deserialize_json_inner<'gc>(
             }
         }
         JsonValue::Object(js_obj) => {
-            let obj_class = activation.avm2().classes().object;
-            let obj = obj_class.construct(activation, &[])?;
+            let obj = ScriptObject::new_object(activation);
             for entry in js_obj.iter() {
-                let key = AvmString::new_utf8(activation.context.gc_context, entry.0);
+                let key = AvmString::new_utf8(activation.gc(), entry.0);
                 let val = deserialize_json_inner(activation, entry.1.clone(), reviver)?;
                 let mapped_val = match reviver {
                     None => val,
-                    Some(reviver) => reviver.call(Value::Null, &[key.into(), val], activation)?,
+                    Some(reviver) => reviver.call(activation, Value::Null, &[key.into(), val])?,
                 };
                 if matches!(mapped_val, Value::Undefined) {
-                    obj.delete_public_property(activation, key)?;
+                    obj.delete_string_property_local(key, activation)?;
                 } else {
-                    obj.set_public_property(key, mapped_val, activation)?;
+                    obj.set_string_property_local(key, mapped_val, activation)?;
                 }
             }
             obj.into()
@@ -56,12 +56,12 @@ fn deserialize_json_inner<'gc>(
                 let val = deserialize_json_inner(activation, val.clone(), reviver)?;
                 let mapped_val = match reviver {
                     None => val,
-                    Some(reviver) => reviver.call(Value::Null, &[key.into(), val], activation)?,
+                    Some(reviver) => reviver.call(activation, Value::Null, &[key.into(), val])?,
                 };
                 arr.push(Some(mapped_val));
             }
             let storage = ArrayStorage::from_storage(arr);
-            let array = ArrayObject::from_storage(activation, storage)?;
+            let array = ArrayObject::from_storage(activation, storage);
             array.into()
         }
     })
@@ -70,14 +70,14 @@ fn deserialize_json_inner<'gc>(
 fn deserialize_json<'gc>(
     activation: &mut Activation<'_, 'gc>,
     json: JsonValue,
-    reviver: Option<Object<'gc>>,
+    reviver: Option<FunctionObject<'gc>>,
 ) -> Result<Value<'gc>, Error<'gc>> {
     let val = deserialize_json_inner(activation, json, reviver)?;
     match reviver {
         None => Ok(val),
         Some(reviver) => {
-            let args = [activation.strings().empty().into(), val];
-            reviver.call(Value::Null, &args, activation)
+            let args = [istr!("").into(), val];
+            reviver.call(activation, Value::Null, &args)
         }
     }
 }
@@ -118,25 +118,25 @@ impl<'gc> AvmSerializer<'gc> {
         key: impl Fn() -> AvmString<'gc>,
         value: Value<'gc>,
     ) -> Result<Value<'gc>, Error<'gc>> {
-        let (eval_key, value) = if value.is_primitive() {
-            (None, value)
-        } else {
-            let obj = value.as_object().unwrap();
-            if obj.has_public_property("toJSON", activation) {
+        let (eval_key, value) = if value.as_object().is_some() {
+            if value.has_public_property(istr!("toJSON"), activation) {
                 let key = key();
                 (
                     Some(key),
-                    obj.call_public_property("toJSON", &[key.into()], activation)?,
+                    value.call_public_property(istr!("toJSON"), &[key.into()], activation)?,
                 )
             } else {
                 (None, value)
             }
+        } else {
+            (None, value)
         };
+
         if let Some(Replacer::Function(replacer)) = self.replacer {
             replacer.call(
+                activation,
                 Value::Null,
                 &[eval_key.unwrap_or_else(key).into(), value],
-                activation,
             )
         } else {
             Ok(value)
@@ -152,10 +152,9 @@ impl<'gc> AvmSerializer<'gc> {
         // If the user supplied a PropList, we use that to find properties on the object.
         if let Some(Replacer::PropList(props)) = self.replacer {
             let mut iter = ArrayIter::new(activation, props.into())?;
-            while let Some(r) = iter.next(activation) {
-                let item = r?.1;
+            while let Some((_, item)) = iter.next(activation)? {
                 let key = item.coerce_to_string(activation)?;
-                let value = obj.get_public_property(key, activation)?;
+                let value = Value::from(obj).get_public_property(key, activation)?;
                 let mapped = self.map_value(activation, || key, value)?;
                 if !matches!(mapped, Value::Undefined) {
                     js_obj.insert(
@@ -176,10 +175,10 @@ impl<'gc> AvmSerializer<'gc> {
             }
             for i in 1.. {
                 match obj.get_enumerant_name(i, activation)? {
-                    Value::Undefined => break,
+                    Value::Null => break,
                     name_val => {
                         let name = name_val.coerce_to_string(activation)?;
-                        let value = obj.get_public_property(name, activation)?;
+                        let value = obj.get_enumerant_value(i, activation)?;
                         let mapped = self.map_value(activation, || name, value)?;
                         if !matches!(mapped, Value::Undefined) {
                             js_obj.insert(
@@ -203,9 +202,8 @@ impl<'gc> AvmSerializer<'gc> {
     ) -> Result<JsonValue, Error<'gc>> {
         let mut js_arr = Vec::new();
         let mut iter = ArrayIter::new(activation, iterable)?;
-        while let Some(r) = iter.next(activation) {
-            let (i, item) = r?;
-            let mc = activation.context.gc_context;
+        while let Some((i, item)) = iter.next(activation)? {
+            let mc = activation.gc();
             let mapped =
                 self.map_value(activation, || AvmString::new_utf8(mc, i.to_string()), item)?;
             js_arr.push(self.serialize_value(activation, mapped)?);
@@ -226,10 +224,6 @@ impl<'gc> AvmSerializer<'gc> {
             Value::Bool(b) => JsonValue::from(b),
             Value::String(s) => JsonValue::from(s.to_utf8_lossy().deref()),
             Value::Object(obj) => {
-                // special case for boxed primitives
-                if let Some(prim) = obj.as_primitive() {
-                    return self.serialize_value(activation, *prim);
-                }
                 if self.obj_stack.contains(&obj) {
                     return Err(Error::AvmError(type_error(
                         activation,
@@ -258,7 +252,7 @@ impl<'gc> AvmSerializer<'gc> {
         activation: &mut Activation<'_, 'gc>,
         value: Value<'gc>,
     ) -> Result<JsonValue, Error<'gc>> {
-        let empty = activation.strings().empty();
+        let empty = istr!("");
         let mapped = self.map_value(activation, || empty, value)?;
         self.serialize_value(activation, mapped)
     }
@@ -267,11 +261,14 @@ impl<'gc> AvmSerializer<'gc> {
 /// Implements `JSON.parse`.
 pub fn parse<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    _this: Object<'gc>,
+    _this: Value<'gc>,
     args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
     let input = args.get_string(activation, 0)?;
-    let reviver = args.try_get_object(activation, 1);
+    let reviver = args
+        .get_value(1)
+        .as_object()
+        .map(|o| o.as_function_object().unwrap());
 
     let parsed = if let Ok(parsed) = serde_json::from_str(&input.to_utf8_lossy()) {
         parsed
@@ -289,15 +286,15 @@ pub fn parse<'gc>(
 /// Implements `JSON.stringify`.
 pub fn stringify<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    _this: Object<'gc>,
+    _this: Value<'gc>,
     args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
     let val = args.get_value(0);
-    let replacer = args.try_get_object(activation, 1);
+    let replacer = args.get_value(1).as_object();
     let spaces = args.get_value(2);
 
     // If the replacer is None, that means it was either undefined or null.
-    if replacer.is_none() && !matches!(args.get(1).unwrap(), Value::Null) {
+    if replacer.is_none() && !matches!(args.get_value(1), Value::Null) {
         return Err(Error::AvmError(type_error(
             activation,
             "Error #1131: Replacer argument to JSON stringifier must be an array or a two parameter function.",
@@ -356,5 +353,5 @@ pub fn stringify<'gc>(
         }
         None => serde_json::to_vec(&json).expect("JSON serialization cannot fail"),
     };
-    Ok(AvmString::new_utf8_bytes(activation.context.gc_context, &result).into())
+    Ok(AvmString::new_utf8_bytes(activation.gc(), &result).into())
 }

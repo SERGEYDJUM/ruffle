@@ -1,18 +1,16 @@
-use crate::{
-    avm1::{
-        globals::xml_socket::XmlSocket, Activation as Avm1Activation, ActivationIdentifier,
-        ExecutionReason, Object as Avm1Object, TObject as Avm1TObject,
-    },
-    avm2::{
-        object::SocketObject, Activation as Avm2Activation, Avm2, EventObject,
-        TObject as Avm2TObject,
-    },
-    backend::navigator::NavigatorBackend,
-    context::UpdateContext,
-    string::AvmString,
+use crate::avm1::{
+    globals::xml_socket::XmlSocket, Activation as Avm1Activation, ActivationIdentifier,
+    ExecutionReason, Object as Avm1Object, TObject as Avm1TObject,
 };
+use crate::avm2::object::{EventObject, SocketObject};
+use crate::avm2::{Activation as Avm2Activation, Avm2};
+use crate::backend::navigator::NavigatorBackend;
+use crate::context::UpdateContext;
+use crate::string::AvmString;
+
 use async_channel::{unbounded, Receiver, Sender as AsyncSender, Sender};
 use gc_arena::Collect;
+use ruffle_macros::istr;
 use slotmap::{new_key_type, SlotMap};
 use std::{
     cell::{Cell, RefCell},
@@ -239,7 +237,7 @@ impl<'gc> Sockets<'gc> {
                             );
 
                             let _ = target.call_method(
-                                "onConnect".into(),
+                                istr!("onConnect"),
                                 &[true.into()],
                                 &mut activation,
                                 ExecutionReason::Special,
@@ -261,21 +259,11 @@ impl<'gc> Sockets<'gc> {
                         SocketKind::Avm2(target) => {
                             let mut activation = Avm2Activation::from_nothing(context);
 
-                            let io_error_evt = activation
-                                .avm2()
-                                .classes()
-                                .ioerrorevent
-                                .construct(
-                                    &mut activation,
-                                    &[
-                                        "ioError".into(),
-                                        false.into(),
-                                        false.into(),
-                                        "Error #2031: Socket Error.".into(),
-                                        2031.into(),
-                                    ],
-                                )
-                                .expect("IOErrorEvent should be constructed");
+                            let io_error_evt = EventObject::io_error_event(
+                                &mut activation,
+                                "Error #2031: Socket Error.".into(),
+                                2031,
+                            );
 
                             Avm2::dispatch_event(activation.context, io_error_evt, target.into());
                         }
@@ -287,7 +275,7 @@ impl<'gc> Sockets<'gc> {
                             );
 
                             let _ = target.call_method(
-                                "onConnect".into(),
+                                istr!("onConnect"),
                                 &[false.into()],
                                 &mut activation,
                                 ExecutionReason::Special,
@@ -309,22 +297,12 @@ impl<'gc> Sockets<'gc> {
                             let bytes_loaded = data.len();
                             target.read_buffer().extend(data);
 
-                            let progress_evt = activation
-                                .avm2()
-                                .classes()
-                                .progressevent
-                                .construct(
-                                    &mut activation,
-                                    &[
-                                        "socketData".into(),
-                                        false.into(),
-                                        false.into(),
-                                        bytes_loaded.into(),
-                                        //NOTE: bytesTotal is not used by socketData event.
-                                        0.into(),
-                                    ],
-                                )
-                                .expect("ProgressEvent should be constructed");
+                            let progress_evt = EventObject::progress_event(
+                                &mut activation,
+                                "socketData",
+                                bytes_loaded,
+                                0, // NOTE: bytesTotal is not used by socketData event.
+                            );
 
                             Avm2::dispatch_event(activation.context, progress_evt, target.into());
                         }
@@ -359,7 +337,7 @@ impl<'gc> Sockets<'gc> {
 
                                     // Call the event handler.
                                     let _ = target.call_method(
-                                        "onData".into(),
+                                        istr!("onData"),
                                         &[message.into()],
                                         &mut activation,
                                         ExecutionReason::Special,
@@ -423,7 +401,7 @@ impl<'gc> Sockets<'gc> {
                             socket.read_buffer().clear();
 
                             let _ = target.call_method(
-                                "onClose".into(),
+                                istr!("onClose"),
                                 &[],
                                 &mut activation,
                                 ExecutionReason::Special,

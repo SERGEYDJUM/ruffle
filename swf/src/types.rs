@@ -1042,6 +1042,7 @@ pub enum AudioCompression {
     Nellymoser16Khz = 4,
     Nellymoser8Khz = 5,
     Nellymoser = 6,
+    Aac = 10,
     Speex = 11,
 }
 

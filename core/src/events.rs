@@ -1,15 +1,14 @@
-use crate::display_object::InteractiveObject;
+use crate::{display_object::InteractiveObject, input::InputEvent};
+use std::str::FromStr;
 use swf::ClipEventFlag;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum PlayerEvent {
     KeyDown {
-        key_code: KeyCode,
-        key_char: Option<char>,
+        key: KeyDescriptor,
     },
     KeyUp {
-        key_code: KeyCode,
-        key_char: Option<char>,
+        key: KeyDescriptor,
     },
     MouseMove {
         x: f64,
@@ -466,6 +465,8 @@ impl TextControlCode {
 }
 
 /// Flash virtual keycode.
+///
+/// See <https://docs.ruffle.rs/en_US/FlashPlatform/reference/actionscript/3/flash/ui/Keyboard.html#summaryTableConstant>
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct KeyCode(u32);
 
@@ -476,7 +477,7 @@ impl KeyCode {
     pub const MOUSE_MIDDLE: KeyCode = KeyCode(4);
     pub const BACKSPACE: KeyCode = KeyCode(8);
     pub const TAB: KeyCode = KeyCode(9);
-    pub const RETURN: KeyCode = KeyCode(13);
+    pub const ENTER: KeyCode = KeyCode(13);
     pub const COMMAND: KeyCode = KeyCode(15);
     pub const SHIFT: KeyCode = KeyCode(16);
     pub const CONTROL: KeyCode = KeyCode(17);
@@ -486,8 +487,8 @@ impl KeyCode {
     pub const NUMPAD: KeyCode = KeyCode(21);
     pub const ESCAPE: KeyCode = KeyCode(27);
     pub const SPACE: KeyCode = KeyCode(32);
-    pub const PG_UP: KeyCode = KeyCode(33);
-    pub const PG_DOWN: KeyCode = KeyCode(34);
+    pub const PAGE_UP: KeyCode = KeyCode(33);
+    pub const PAGE_DOWN: KeyCode = KeyCode(34);
     pub const END: KeyCode = KeyCode(35);
     pub const HOME: KeyCode = KeyCode(36);
     pub const LEFT: KeyCode = KeyCode(37);
@@ -496,16 +497,16 @@ impl KeyCode {
     pub const DOWN: KeyCode = KeyCode(40);
     pub const INSERT: KeyCode = KeyCode(45);
     pub const DELETE: KeyCode = KeyCode(46);
-    pub const KEY0: KeyCode = KeyCode(48);
-    pub const KEY1: KeyCode = KeyCode(49);
-    pub const KEY2: KeyCode = KeyCode(50);
-    pub const KEY3: KeyCode = KeyCode(51);
-    pub const KEY4: KeyCode = KeyCode(52);
-    pub const KEY5: KeyCode = KeyCode(53);
-    pub const KEY6: KeyCode = KeyCode(54);
-    pub const KEY7: KeyCode = KeyCode(55);
-    pub const KEY8: KeyCode = KeyCode(56);
-    pub const KEY9: KeyCode = KeyCode(57);
+    pub const NUMBER_0: KeyCode = KeyCode(48);
+    pub const NUMBER_1: KeyCode = KeyCode(49);
+    pub const NUMBER_2: KeyCode = KeyCode(50);
+    pub const NUMBER_3: KeyCode = KeyCode(51);
+    pub const NUMBER_4: KeyCode = KeyCode(52);
+    pub const NUMBER_5: KeyCode = KeyCode(53);
+    pub const NUMBER_6: KeyCode = KeyCode(54);
+    pub const NUMBER_7: KeyCode = KeyCode(55);
+    pub const NUMBER_8: KeyCode = KeyCode(56);
+    pub const NUMBER_9: KeyCode = KeyCode(57);
     pub const A: KeyCode = KeyCode(65);
     pub const B: KeyCode = KeyCode(66);
     pub const C: KeyCode = KeyCode(67);
@@ -532,22 +533,22 @@ impl KeyCode {
     pub const X: KeyCode = KeyCode(88);
     pub const Y: KeyCode = KeyCode(89);
     pub const Z: KeyCode = KeyCode(90);
-    pub const NUMPAD0: KeyCode = KeyCode(96);
-    pub const NUMPAD1: KeyCode = KeyCode(97);
-    pub const NUMPAD2: KeyCode = KeyCode(98);
-    pub const NUMPAD3: KeyCode = KeyCode(99);
-    pub const NUMPAD4: KeyCode = KeyCode(100);
-    pub const NUMPAD5: KeyCode = KeyCode(101);
-    pub const NUMPAD6: KeyCode = KeyCode(102);
-    pub const NUMPAD7: KeyCode = KeyCode(103);
-    pub const NUMPAD8: KeyCode = KeyCode(104);
-    pub const NUMPAD9: KeyCode = KeyCode(105);
-    pub const MULTIPLY: KeyCode = KeyCode(106);
-    pub const PLUS: KeyCode = KeyCode(107);
+    pub const NUMPAD_0: KeyCode = KeyCode(96);
+    pub const NUMPAD_1: KeyCode = KeyCode(97);
+    pub const NUMPAD_2: KeyCode = KeyCode(98);
+    pub const NUMPAD_3: KeyCode = KeyCode(99);
+    pub const NUMPAD_4: KeyCode = KeyCode(100);
+    pub const NUMPAD_5: KeyCode = KeyCode(101);
+    pub const NUMPAD_6: KeyCode = KeyCode(102);
+    pub const NUMPAD_7: KeyCode = KeyCode(103);
+    pub const NUMPAD_8: KeyCode = KeyCode(104);
+    pub const NUMPAD_9: KeyCode = KeyCode(105);
+    pub const NUMPAD_MULTIPLY: KeyCode = KeyCode(106);
+    pub const NUMPAD_ADD: KeyCode = KeyCode(107);
     pub const NUMPAD_ENTER: KeyCode = KeyCode(108);
-    pub const NUMPAD_MINUS: KeyCode = KeyCode(109);
-    pub const NUMPAD_PERIOD: KeyCode = KeyCode(110);
-    pub const NUMPAD_SLASH: KeyCode = KeyCode(111);
+    pub const NUMPAD_SUBTRACT: KeyCode = KeyCode(109);
+    pub const NUMPAD_DECIMAL: KeyCode = KeyCode(110);
+    pub const NUMPAD_DIVIDE: KeyCode = KeyCode(111);
     pub const F1: KeyCode = KeyCode(112);
     pub const F2: KeyCode = KeyCode(113);
     pub const F3: KeyCode = KeyCode(114);
@@ -575,16 +576,16 @@ impl KeyCode {
     pub const NUM_LOCK: KeyCode = KeyCode(144);
     pub const SCROLL_LOCK: KeyCode = KeyCode(145);
     pub const SEMICOLON: KeyCode = KeyCode(186);
-    pub const EQUALS: KeyCode = KeyCode(187);
+    pub const EQUAL: KeyCode = KeyCode(187);
     pub const COMMA: KeyCode = KeyCode(188);
     pub const MINUS: KeyCode = KeyCode(189);
     pub const PERIOD: KeyCode = KeyCode(190);
     pub const SLASH: KeyCode = KeyCode(191);
-    pub const GRAVE: KeyCode = KeyCode(192);
-    pub const LBRACKET: KeyCode = KeyCode(219);
+    pub const BACKQUOTE: KeyCode = KeyCode(192);
+    pub const LEFTBRACKET: KeyCode = KeyCode(219);
     pub const BACKSLASH: KeyCode = KeyCode(220);
-    pub const RBRACKET: KeyCode = KeyCode(221);
-    pub const APOSTROPHE: KeyCode = KeyCode(222);
+    pub const RIGHTBRACKET: KeyCode = KeyCode(221);
+    pub const QUOTE: KeyCode = KeyCode(222);
 
     #[inline]
     pub const fn from_code(code: u32) -> Self {
@@ -752,28 +753,28 @@ impl ButtonKeyCode {
             KeyCode::INSERT => ButtonKeyCode::Insert,
             KeyCode::DELETE => ButtonKeyCode::Delete,
             KeyCode::BACKSPACE => ButtonKeyCode::Backspace,
-            KeyCode::RETURN => ButtonKeyCode::Return,
+            KeyCode::ENTER => ButtonKeyCode::Return,
             KeyCode::UP => ButtonKeyCode::Up,
             KeyCode::DOWN => ButtonKeyCode::Down,
-            KeyCode::PG_UP => ButtonKeyCode::PgUp,
-            KeyCode::PG_DOWN => ButtonKeyCode::PgDown,
+            KeyCode::PAGE_UP => ButtonKeyCode::PgUp,
+            KeyCode::PAGE_DOWN => ButtonKeyCode::PgDown,
             KeyCode::ESCAPE => ButtonKeyCode::Escape,
             KeyCode::TAB => ButtonKeyCode::Tab,
             _ => return None,
         })
     }
 
-    pub fn from_player_event(event: PlayerEvent) -> Option<Self> {
+    pub fn from_input_event(event: &InputEvent) -> Option<Self> {
         match event {
             // ASCII characters convert directly to keyPress button events.
-            PlayerEvent::TextInput { codepoint }
-                if codepoint as u32 >= 32 && codepoint as u32 <= 126 =>
+            InputEvent::TextInput { codepoint }
+                if *codepoint as u32 >= 32 && *codepoint as u32 <= 126 =>
             {
-                Some(ButtonKeyCode::from_u8(codepoint as u8).unwrap())
+                Some(ButtonKeyCode::from_u8(*codepoint as u8).unwrap())
             }
 
             // Special keys have custom values for keyPress.
-            PlayerEvent::KeyDown { key_code, .. } => Self::from_key_code(key_code),
+            InputEvent::KeyDown { key_code, .. } => Self::from_key_code(*key_code),
             _ => None,
         }
     }
@@ -800,4 +801,329 @@ pub enum GamepadButton {
     DPadDown,
     DPadLeft,
     DPadRight,
+}
+
+pub struct ParseEnumError;
+
+impl FromStr for GamepadButton {
+    type Err = ParseEnumError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s {
+            "south" => Self::South,
+            "east" => Self::East,
+            "north" => Self::North,
+            "west" => Self::West,
+            "left-trigger" => Self::LeftTrigger,
+            "left-trigger-2" => Self::LeftTrigger2,
+            "right-trigger" => Self::RightTrigger,
+            "right-trigger-2" => Self::RightTrigger2,
+            "select" => Self::Select,
+            "start" => Self::Start,
+            "dpad-up" => Self::DPadUp,
+            "dpad-down" => Self::DPadDown,
+            "dpad-left" => Self::DPadLeft,
+            "dpad-right" => Self::DPadRight,
+            _ => return Err(ParseEnumError),
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct KeyDescriptor {
+    pub physical_key: PhysicalKey,
+    pub logical_key: LogicalKey,
+    pub key_location: KeyLocation,
+}
+
+/// Physical keys are keys that exist physically on a keyboard (or other devices).
+///
+/// For instance:
+/// * pressing <kbd>E</kbd> while using ANSI keyboard and Colemak keyboard layout
+///   will produce physical key [`PhysicalKey::KeyE`] and logical key `F`,
+/// * pressing left backslash on a UK keyboard will produce physical key
+///   [`PhysicalKey::IntlBackslash`] and logical key `\`.
+///
+/// See <https://w3c.github.io/uievents-code/#code-value-tables>.
+#[derive(Debug, Clone, Copy)]
+pub enum PhysicalKey {
+    Unknown = 0,
+
+    // Alphanumeric Section
+    Backquote,
+    Digit0,
+    Digit1,
+    Digit2,
+    Digit4,
+    Digit3,
+    Digit5,
+    Digit6,
+    Digit7,
+    Digit8,
+    Digit9,
+    Minus,
+    Equal,
+    IntlYen,
+    KeyA,
+    KeyB,
+    KeyC,
+    KeyD,
+    KeyE,
+    KeyF,
+    KeyG,
+    KeyH,
+    KeyI,
+    KeyJ,
+    KeyK,
+    KeyL,
+    KeyM,
+    KeyN,
+    KeyO,
+    KeyP,
+    KeyQ,
+    KeyR,
+    KeyS,
+    KeyT,
+    KeyU,
+    KeyV,
+    KeyW,
+    KeyX,
+    KeyY,
+    KeyZ,
+    BracketLeft,
+    BracketRight,
+    Backslash,
+    Semicolon,
+    Quote,
+    IntlBackslash,
+    Comma,
+    Period,
+    Slash,
+    IntlRo,
+    Backspace,
+    Tab,
+    CapsLock,
+    Enter,
+    ShiftLeft,
+    ShiftRight,
+    ControlLeft,
+    SuperLeft,
+    AltLeft,
+    Space,
+    AltRight,
+    SuperRight,
+    ContextMenu,
+    ControlRight,
+
+    // Control Pad Section
+    Insert,
+    Delete,
+    Home,
+    End,
+    PageUp,
+    PageDown,
+
+    // Arrow Pad Section
+    ArrowUp,
+    ArrowLeft,
+    ArrowDown,
+    ArrowRight,
+
+    // Numpad Section
+    NumLock,
+    NumpadDivide,
+    NumpadMultiply,
+    NumpadSubtract,
+    Numpad7,
+    Numpad8,
+    Numpad9,
+    Numpad4,
+    Numpad5,
+    Numpad6,
+    Numpad1,
+    Numpad2,
+    Numpad3,
+    Numpad0,
+    NumpadAdd,
+    NumpadComma,
+    NumpadEnter,
+    NumpadDecimal,
+
+    // Function Section
+    Escape,
+    F1,
+    F2,
+    F3,
+    F4,
+    F5,
+    F6,
+    F7,
+    F8,
+    F9,
+    F10,
+    F11,
+    F12,
+    F13,
+    F14,
+    F15,
+    F16,
+    F17,
+    F18,
+    F19,
+    F20,
+    F21,
+    F22,
+    F23,
+    F24,
+    F25,
+    F26,
+    F27,
+    F28,
+    F29,
+    F30,
+    F31,
+    F32,
+    F33,
+    F34,
+    F35,
+    Fn,
+    FnLock,
+    PrintScreen,
+    ScrollLock,
+    Pause,
+}
+
+/// Logical key represents the semantics behind a pressed physical key
+/// taking into account any system keyboard layouts and mappings.
+///
+/// Most keys will be mapped into a [`LogicalKey::Character`], but some keys that do not produce
+/// any characters (such as `F1...Fn` keys, `Home`, `Ctrl`, etc.) will be mapped into
+/// [`LogicalKey::Named`], which is similar to a physical key, but:
+/// * it does not take into account duplicate keys, e.g. there's only one Shift,
+/// * it respects the keyboard layout, so that e.g. pressing <kbd>CapsLock</kbd>
+///   with Colemak can produce `Backspace`.
+///
+/// See <https://w3c.github.io/uievents-key/>.
+#[derive(Debug, Clone, Copy)]
+pub enum LogicalKey {
+    Unknown,
+    Character(char),
+    Named(NamedKey),
+}
+
+impl LogicalKey {
+    pub fn character(self) -> Option<char> {
+        match self {
+            LogicalKey::Unknown => None,
+            LogicalKey::Character(ch) => Some(ch),
+            LogicalKey::Named(NamedKey::Backspace) => Some('\u{0008}'),
+            LogicalKey::Named(NamedKey::Tab) => Some('\u{0009}'),
+            LogicalKey::Named(NamedKey::Enter) => Some('\u{000D}'),
+            LogicalKey::Named(NamedKey::Escape) => Some('\u{001B}'),
+            LogicalKey::Named(NamedKey::Delete) => Some('\u{007F}'),
+            LogicalKey::Named(_) => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum NamedKey {
+    // Modifier Keys
+    Alt,
+    AltGraph,
+    CapsLock,
+    Control,
+    Fn,
+    FnLock,
+    Super,
+    NumLock,
+    ScrollLock,
+    Shift,
+    Symbol,
+    SymbolLock,
+
+    // Whitespace Keys
+    Enter,
+    Tab,
+
+    // Navigation Keys
+    ArrowDown,
+    ArrowLeft,
+    ArrowRight,
+    ArrowUp,
+    End,
+    Home,
+    PageDown,
+    PageUp,
+
+    // Editing Keys
+    Backspace,
+    Clear,
+    Copy,
+    CrSel,
+    Cut,
+    Delete,
+    EraseEof,
+    ExSel,
+    Insert,
+    Paste,
+    Redo,
+    Undo,
+
+    // UI Keys
+    ContextMenu,
+    Escape,
+    Pause,
+    Play,
+    Select,
+    ZoomIn,
+    ZoomOut,
+
+    // Device Keys
+    PrintScreen,
+
+    // General-Purpose Function Keys
+    F1,
+    F2,
+    F3,
+    F4,
+    F5,
+    F6,
+    F7,
+    F8,
+    F9,
+    F10,
+    F11,
+    F12,
+    F13,
+    F14,
+    F15,
+    F16,
+    F17,
+    F18,
+    F19,
+    F20,
+    F21,
+    F22,
+    F23,
+    F24,
+    F25,
+    F26,
+    F27,
+    F28,
+    F29,
+    F30,
+    F31,
+    F32,
+    F33,
+    F34,
+    F35,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum KeyLocation {
+    Standard = 0,
+    Left = 1,
+    Right = 2,
+    Numpad = 3,
 }

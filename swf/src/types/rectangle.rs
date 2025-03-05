@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{types::point::Coordinate as PointCoordinate, Point, Twips};
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 
 pub trait Coordinate: PointCoordinate + Ord {
     const INVALID: Self;
@@ -25,6 +25,16 @@ pub struct Rectangle<T> {
 
     /// The maximum y-position of the rectangle.
     pub y_max: T,
+}
+
+impl<T: Debug> Debug for Rectangle<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Rectangle(x={:?}..{:?}, y={:?}..{:?})",
+            self.x_min, self.x_max, self.y_min, self.y_max
+        )
+    }
 }
 
 impl<T: PointCoordinate + Ord> Rectangle<T> {

@@ -14,6 +14,7 @@ use crate::local_connection::{LocalConnectionHandle, LocalConnections};
 use crate::string::{AvmString, StringContext};
 use flash_lso::types::Value as AmfValue;
 use gc_arena::{Collect, Gc};
+use ruffle_macros::istr;
 use std::cell::RefCell;
 
 #[derive(Debug, Collect)]
@@ -69,7 +70,7 @@ impl<'gc> LocalConnection<'gc> {
     pub fn send_status(
         context: &mut UpdateContext<'gc>,
         this: Object<'gc>,
-        status: &'static str,
+        status: AvmString<'gc>,
     ) -> Result<(), Error<'gc>> {
         let Some(root_clip) = context.stage.root_clip() else {
             tracing::warn!("Ignored LocalConnection callback as there's no root movie");
@@ -84,9 +85,9 @@ impl<'gc> LocalConnection<'gc> {
         let event = constructor
             .construct(&mut activation, &[])?
             .coerce_to_object(&mut activation);
-        event.set("level", status.into(), &mut activation)?;
+        event.set(istr!("level"), status.into(), &mut activation)?;
         this.call_method(
-            "onStatus".into(),
+            istr!("onStatus"),
             &[event.into()],
             &mut activation,
             ExecutionReason::Special,
@@ -145,10 +146,7 @@ pub fn domain<'gc>(
     let movie = activation.base_clip().movie();
     let domain = LocalConnections::get_domain(movie.url());
 
-    Ok(Value::String(AvmString::new_utf8(
-        activation.context.gc_context,
-        domain,
-    )))
+    Ok(Value::String(AvmString::new_utf8(activation.gc(), domain)))
 }
 
 pub fn connect<'gc>(
@@ -249,7 +247,7 @@ pub fn create_proto<'gc>(
     proto: Object<'gc>,
     fn_proto: Object<'gc>,
 ) -> Object<'gc> {
-    let object = ScriptObject::new(context.gc_context, Some(proto));
+    let object = ScriptObject::new(context, Some(proto));
     define_properties_on(PROTO_DECLS, context, object, fn_proto);
     object.into()
 }

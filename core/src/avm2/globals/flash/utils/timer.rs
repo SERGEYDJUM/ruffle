@@ -1,35 +1,25 @@
 //! `flash.utils.Timer` native methods
 
 use crate::avm2::activation::Activation;
+use crate::avm2::globals::slots::flash_utils_timer as slots;
 use crate::avm2::object::TObject;
 use crate::avm2::value::Value;
-use crate::avm2::Multiname;
-use crate::avm2::{Error, Object};
+use crate::avm2::Error;
 use crate::timer::TimerCallback;
 
 /// Implements `Timer.stop`
 pub fn stop<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
-    let namespaces = activation.avm2().namespaces;
+    let this = this.as_object().unwrap();
 
-    let id = this
-        .get_property(
-            &Multiname::new(namespaces.flash_utils_internal, "_timerId"),
-            activation,
-        )
-        .unwrap()
-        .coerce_to_i32(activation)?;
+    let id = this.get_slot(slots::_TIMER_ID).coerce_to_i32(activation)?;
 
     if id != -1 {
         activation.context.timers.remove(id);
-        this.set_property(
-            &Multiname::new(namespaces.flash_utils_internal, "_timerId"),
-            (-1).into(),
-            activation,
-        )?;
+        this.set_slot(slots::_TIMER_ID, (-1).into(), activation)?;
     }
 
     Ok(Value::Undefined)
@@ -38,33 +28,18 @@ pub fn stop<'gc>(
 /// Implements `Timer.start`
 pub fn start<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
-    let namespaces = activation.avm2().namespaces;
+    let this = this.as_object().unwrap();
 
-    let id = this
-        .get_property(
-            &Multiname::new(namespaces.flash_utils_internal, "_timerId"),
-            activation,
-        )
-        .unwrap()
-        .coerce_to_i32(activation)?;
+    let id = this.get_slot(slots::_TIMER_ID).coerce_to_i32(activation)?;
 
-    let delay = this
-        .get_property(
-            &Multiname::new(namespaces.flash_utils_internal, "_delay"),
-            activation,
-        )
-        .unwrap()
-        .coerce_to_number(activation)?;
+    let delay = this.get_slot(slots::_DELAY).coerce_to_i32(activation)?;
 
     if id == -1 {
         let on_update = this
-            .get_property(
-                &Multiname::new(namespaces.flash_utils_internal, "onUpdate"),
-                activation,
-            )?
+            .get_slot(slots::_ON_UPDATE_CLOSURE)
             .as_object()
             .expect("Internal function is object");
 
@@ -76,14 +51,10 @@ pub fn start<'gc>(
                 closure: on_update,
                 params: vec![],
             },
-            delay as _,
+            delay,
             false,
         );
-        this.set_property(
-            &Multiname::new(namespaces.flash_utils_internal, "_timerId"),
-            id.into(),
-            activation,
-        )?;
+        this.set_slot(slots::_TIMER_ID, id.into(), activation)?;
     }
     Ok(Value::Undefined)
 }
@@ -91,26 +62,14 @@ pub fn start<'gc>(
 /// Implements `Timer.updateDelay`
 pub fn update_delay<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
-    let namespaces = activation.avm2().namespaces;
+    let this = this.as_object().unwrap();
 
-    let id = this
-        .get_property(
-            &Multiname::new(namespaces.flash_utils_internal, "_timerId"),
-            activation,
-        )
-        .unwrap()
-        .coerce_to_i32(activation)?;
+    let id = this.get_slot(slots::_TIMER_ID).coerce_to_i32(activation)?;
 
-    let delay = this
-        .get_property(
-            &Multiname::new(namespaces.flash_utils_internal, "_delay"),
-            activation,
-        )
-        .unwrap()
-        .coerce_to_i32(activation)?;
+    let delay = this.get_slot(slots::_DELAY).coerce_to_i32(activation)?;
 
     if id != -1 {
         activation.context.timers.set_delay(id, delay);

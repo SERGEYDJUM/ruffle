@@ -32,8 +32,13 @@ package flash.events
         public static const CONTEXT_MENU:String = "contextMenu";
 
         public var relatedObject: InteractiveObject;
+
+        [Ruffle(NativeAccessible)]
         public var localX: Number;
+
+        [Ruffle(NativeAccessible)]
         public var localY: Number;
+
         public var ctrlKey: Boolean;
         public var altKey: Boolean;
         public var shiftKey: Boolean;

@@ -1,25 +1,21 @@
-use std::{
-    cell::{Ref, RefMut},
-    fmt::{self, Debug},
-};
+use crate::avm2::error::{make_error_1010, make_error_1085, make_error_1118, type_error};
+use crate::avm2::object::{E4XOrXml, FunctionObject, NamespaceObject};
+use crate::avm2::{Activation, Error, Multiname, TObject, Value};
+use crate::string::{AvmString, StringContext, WStr, WString};
+use crate::xml::custom_unescape;
 
 use gc_arena::{Collect, GcCell, Mutation};
+
 use quick_xml::{
     errors::{IllFormedError, SyntaxError as XmlSyntaxError},
     events::{attributes::AttrError as XmlAttrError, BytesStart, Event},
     name::ResolveResult,
     Error as XmlError, NsReader,
 };
+use ruffle_macros::istr;
 
-use crate::{avm2::TObject, xml::custom_unescape};
-
-use super::{
-    error::{make_error_1010, make_error_1085, make_error_1118, type_error},
-    object::{E4XOrXml, FunctionObject, NamespaceObject},
-    string::AvmString,
-    Activation, Error, Multiname, Value,
-};
-use crate::string::{WStr, WString};
+use std::cell::{Ref, RefMut};
+use std::fmt::{self, Debug};
 
 mod is_xml_name;
 mod iterators;
@@ -113,10 +109,10 @@ impl<'gc> E4XNamespace<'gc> {
         E4XNamespace { prefix: None, uri }
     }
 
-    pub fn default_namespace() -> Self {
+    pub fn default_namespace(context: &StringContext<'gc>) -> Self {
         E4XNamespace {
             prefix: None,
-            uri: "".into(),
+            uri: istr!(context, ""),
         }
     }
 }
@@ -136,7 +132,10 @@ impl<'gc> E4XNamespace<'gc> {
             .classes()
             .namespace
             .construct(activation, &args)?;
+
         Ok(obj
+            .as_object()
+            .unwrap()
             .as_namespace_object()
             .expect("just constructed a namespace"))
     }
@@ -757,12 +756,12 @@ impl<'gc> E4XNode<'gc> {
     ) -> Result<Vec<Self>, Error<'gc>> {
         let string = match &value {
             // The docs claim that this throws a TypeError, but it actually doesn't
-            Value::Null | Value::Undefined => AvmString::default(),
+            Value::Null | Value::Undefined => istr!(""),
             // The docs claim that only String, Number or Boolean are accepted, but that's also a lie
             val => {
                 if let Some(obj) = val.as_object() {
                     if obj.as_xml_object().is_some() || obj.as_xml_list_object().is_some() {
-                        value = obj.call_public_property("toXMLString", &[], activation)?;
+                        value = val.call_public_property(istr!("toXMLString"), &[], activation)?;
                     }
                 }
                 value.coerce_to_string(activation)?
@@ -784,7 +783,7 @@ impl<'gc> E4XNode<'gc> {
             activation: &mut Activation<'_, 'gc>,
         ) -> Result<(), Error<'gc>> {
             if let Some(current_tag) = open_tags.last_mut() {
-                current_tag.append_child(activation.context.gc_context, node)?;
+                current_tag.append_child(activation.gc(), node)?;
             }
 
             if open_tags.is_empty() {
@@ -827,7 +826,7 @@ impl<'gc> E4XNode<'gc> {
             let is_whitespace_text = text.iter().all(is_whitespace_char);
             if !(is_text && ignore_white && is_whitespace_text) {
                 let text = AvmString::new_utf8_bytes(
-                    activation.context.gc_context,
+                    activation.gc(),
                     if is_text && ignore_white {
                         trim_ascii(text)
                     } else {
@@ -835,7 +834,7 @@ impl<'gc> E4XNode<'gc> {
                     },
                 );
                 let node = E4XNode(GcCell::new(
-                    activation.context.gc_context,
+                    activation.gc(),
                     E4XNodeData {
                         parent: None,
                         namespace: None,
@@ -888,7 +887,7 @@ impl<'gc> E4XNode<'gc> {
                         E4XNode::from_start_event(activation, &parser, bs, parser.decoder())?;
 
                     if let Some(current_tag) = open_tags.last_mut() {
-                        current_tag.append_child(activation.context.gc_context, child)?;
+                        current_tag.append_child(activation.gc(), child)?;
                     }
                     open_tags.push(child);
                 }
@@ -933,10 +932,9 @@ impl<'gc> E4XNode<'gc> {
                     }
                     let text = custom_unescape(bt, parser.decoder())
                         .map_err(|e| make_xml_error(activation, e))?;
-                    let text =
-                        AvmString::new_utf8_bytes(activation.context.gc_context, text.as_bytes());
+                    let text = AvmString::new_utf8_bytes(activation.gc(), text.as_bytes());
                     let node = E4XNode(GcCell::new(
-                        activation.context.gc_context,
+                        activation.gc(),
                         E4XNodeData {
                             parent: None,
                             namespace: None,
@@ -956,26 +954,20 @@ impl<'gc> E4XNode<'gc> {
                         .map_err(|e| make_xml_error(activation, e))?;
                     let (name, value) = if let Some((name, value)) = text.split_once(' ') {
                         (
+                            AvmString::new_utf8_bytes(activation.gc(), name.as_bytes()),
                             AvmString::new_utf8_bytes(
-                                activation.context.gc_context,
-                                name.as_bytes(),
-                            ),
-                            AvmString::new_utf8_bytes(
-                                activation.context.gc_context,
+                                activation.gc(),
                                 value.trim_start().as_bytes(),
                             ),
                         )
                     } else {
                         (
-                            AvmString::new_utf8_bytes(
-                                activation.context.gc_context,
-                                text.as_bytes(),
-                            ),
-                            AvmString::default(),
+                            AvmString::new_utf8_bytes(activation.gc(), text.as_bytes()),
+                            istr!(""),
                         )
                     };
                     let node = E4XNode(GcCell::new(
-                        activation.context.gc_context,
+                        activation.gc(),
                         E4XNodeData {
                             parent: None,
                             namespace: None,
@@ -1082,7 +1074,7 @@ impl<'gc> E4XNode<'gc> {
                     if &*name == b"xmlns" {
                         namespaces.push(E4XNamespace {
                             uri: value,
-                            prefix: Some(activation.strings().empty()),
+                            prefix: Some(istr!("")),
                         });
                         continue;
                     }
@@ -1097,7 +1089,7 @@ impl<'gc> E4XNode<'gc> {
                 kind: E4XNodeKind::Attribute(value),
                 notification: None,
             };
-            let attribute = E4XNode(GcCell::new(activation.context.gc_context, attribute_data));
+            let attribute = E4XNode(GcCell::new(activation.gc(), attribute_data));
             attribute_nodes.push(attribute);
         }
 
@@ -1133,12 +1125,12 @@ impl<'gc> E4XNode<'gc> {
             notification: None,
         };
 
-        let result = E4XNode(GcCell::new(activation.context.gc_context, data));
+        let result = E4XNode(GcCell::new(activation.gc(), data));
 
-        let mut result_kind = result.kind_mut(activation.context.gc_context);
+        let mut result_kind = result.kind_mut(activation.gc());
         if let E4XNodeKind::Element { attributes, .. } = &mut *result_kind {
             for attribute in attributes {
-                attribute.set_parent(Some(result), activation.context.gc_context);
+                attribute.set_parent(Some(result), activation.gc());
             }
         }
 
@@ -1178,11 +1170,15 @@ impl<'gc> E4XNode<'gc> {
     }
 
     // 13.3.5.4 [[GetNamespace]] ( [ InScopeNamespaces ] )
-    pub fn get_namespace(&self, in_scope_ns: &[E4XNamespace<'gc>]) -> E4XNamespace<'gc> {
+    pub fn get_namespace(
+        &self,
+        context: &StringContext<'gc>,
+        in_scope_ns: &[E4XNamespace<'gc>],
+    ) -> E4XNamespace<'gc> {
         // 1. If q.uri is null, throw a TypeError exception
         // NOTE: As stated in the spec, this isn't really possible.
         match self.namespace() {
-            None => E4XNamespace::default_namespace(),
+            None => E4XNamespace::default_namespace(context),
             Some(ns) => {
                 // 2. If InScopeNamespaces was not specified, let InScopeNamespaces = { }
                 // 3. Find a Namespace ns in InScopeNamespaces, such that ns.uri == q.uri. If more than one such
@@ -1241,7 +1237,7 @@ impl<'gc> E4XNode<'gc> {
         };
 
         // 2.a. If N.prefix == "" and x.[[Name]].uri == "", return
-        if prefix.is_empty() && self.namespace().map_or(true, |ns| ns.uri.is_empty()) {
+        if prefix.is_empty() && self.namespace().is_none_or(|ns| ns.uri.is_empty()) {
             return;
         }
 
@@ -1321,16 +1317,22 @@ impl<'gc> E4XNode<'gc> {
             return true;
         }
 
-        let self_ns = self.namespace().map(|ns| ns.uri).unwrap_or_default();
+        let self_ns = self.namespace().map(|ns| ns.uri);
         // FIXME: For cases where we don't have *any* explicit namespace
         // we just give up and assume we should match the default public namespace.
         if !name.namespace_set().iter().any(|ns| ns.is_namespace()) {
-            return self_ns.is_empty();
+            return self_ns.is_none_or(|n| n.is_empty());
         }
 
-        name.namespace_set()
-            .iter()
-            .any(|ns| ns.as_uri_opt().expect("NS set cannot contain Any") == self_ns)
+        name.namespace_set().iter().any(|ns| {
+            let uri = ns.as_uri_opt().expect("NS set cannot contain Any");
+
+            if let Some(self_ns) = self_ns {
+                uri == self_ns
+            } else {
+                uri.is_empty()
+            }
+        })
     }
 
     pub fn descendants(&self, name: &Multiname<'gc>, out: &mut Vec<E4XOrXml<'gc>>) {
@@ -1421,7 +1423,7 @@ pub fn simple_content_to_string<'gc>(
     children: impl Iterator<Item = E4XOrXml<'gc>>,
     activation: &mut Activation<'_, 'gc>,
 ) -> AvmString<'gc> {
-    let mut out = AvmString::default();
+    let mut out = istr!("");
     for child in children {
         if matches!(
             &*child.node().kind(),
@@ -1430,7 +1432,7 @@ pub fn simple_content_to_string<'gc>(
             continue;
         }
         let child_str = child.node().xml_to_string(activation);
-        out = AvmString::concat(activation.context.gc_context, out, child_str);
+        out = AvmString::concat(activation.gc(), out, child_str);
     }
     out
 }
@@ -1660,22 +1662,10 @@ pub fn to_xml_string<'gc>(
     xml: E4XOrXml<'gc>,
     activation: &mut Activation<'_, 'gc>,
 ) -> AvmString<'gc> {
-    let pretty_printing = activation
-        .avm2()
-        .classes()
-        .xml
-        .get_public_property("prettyPrinting", activation)
-        .expect("prettyPrinting should be set")
-        .coerce_to_boolean();
+    let pretty_printing = activation.avm2().xml_settings.pretty_printing;
+
     let pretty = if pretty_printing {
-        let pretty_indent = activation
-            .avm2()
-            .classes()
-            .xml
-            .get_public_property("prettyIndent", activation)
-            .expect("prettyIndent should be set")
-            .coerce_to_i32(activation)
-            .expect("shouldn't error");
+        let pretty_indent = activation.avm2().xml_settings.pretty_indent;
 
         // NOTE: Negative values are invalid and are ignored.
         if pretty_indent < 0 {
@@ -1690,7 +1680,7 @@ pub fn to_xml_string<'gc>(
     let mut buf = WString::new();
     let ancestor_namespaces = Vec::new();
     to_xml_string_inner(xml, &mut buf, &ancestor_namespaces, pretty);
-    AvmString::new(activation.context.gc_context, buf)
+    AvmString::new(activation.gc(), buf)
 }
 
 // 10.6.1. ToXMLName Applied to the String Type
@@ -1703,7 +1693,7 @@ pub fn string_to_multiname<'gc>(
             return Multiname::any_attribute();
         }
 
-        let name = AvmString::new(activation.context.gc_context, name);
+        let name = AvmString::new(activation.gc(), name);
         Multiname::attribute(activation.avm2().namespaces.public_all(), name)
     } else if &*name == b"*" {
         Multiname::any()
@@ -1754,9 +1744,10 @@ pub fn maybe_escape_child<'gc>(
 ) -> Result<Value<'gc>, Error<'gc>> {
     // NOTE: This depends on root SWF version, not caller movie version.
     if activation.context.swf.version() <= 9 {
-        if child.as_object().map_or(false, |x| {
-            x.as_xml_object().is_some() || x.as_xml_list_object().is_some()
-        }) {
+        if child
+            .as_object()
+            .is_some_and(|x| x.as_xml_object().is_some() || x.as_xml_list_object().is_some())
+        {
             return Ok(child);
         } else {
             let string = child.coerce_to_string(activation)?;
@@ -1765,7 +1756,7 @@ pub fn maybe_escape_child<'gc>(
                 .classes()
                 .xml
                 .construct(activation, &[string.into()])?;
-            return Ok(xml.into());
+            return Ok(xml);
         }
     }
 
@@ -1785,4 +1776,24 @@ pub fn maybe_escape_child<'gc>(
     }
 
     Ok(child)
+}
+
+pub struct XmlSettings {
+    pub ignore_comments: bool,
+    pub ignore_processing_instructions: bool,
+    pub ignore_whitespace: bool,
+    pub pretty_printing: bool,
+    pub pretty_indent: i32,
+}
+
+impl XmlSettings {
+    pub fn new_default() -> Self {
+        XmlSettings {
+            ignore_comments: true,
+            ignore_processing_instructions: true,
+            ignore_whitespace: true,
+            pretty_printing: true,
+            pretty_indent: 2,
+        }
+    }
 }

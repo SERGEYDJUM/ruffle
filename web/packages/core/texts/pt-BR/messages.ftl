@@ -11,6 +11,7 @@ ruffle-demo = Demo Web
 ruffle-desktop = Aplicativo de Desktop
 ruffle-wiki = Ver Wiki do Ruffle
 enable-hardware-acceleration = Parece que a aceleração de hardware está desabilitada. Embora o Ruffle possa funcionar, ele pode ser muito lento. Você pode descobrir como habilitar a aceleração de hardware seguindo o link abaixo:
+enable-hardware-acceleration-link = FAQ - Aceleração de hardware do Chrome
 view-error-details = Ver detalhes do erro
 open-in-new-tab = Abrir em uma nova guia
 click-to-unmute = Clique para ativar o som
@@ -67,6 +68,10 @@ error-wasm-disabled-on-edge =
     Para corrigir isso, tente abrir configurações do seu navegador, clicando em "Privacidade, pesquisa e serviços", rolando para baixo e desativando "Melhore sua segurança na web".
     Isso permitirá que seu navegador carregue os arquivos ".wasm" necessários.
     Se o problema persistir, talvez seja necessário usar um navegador diferente.
+error-wasm-unsupported-browser =
+    O navegador que você está usando não suporta as extensões WebAssembly Ruffle exige que seja executado.
+    Por favor, mude para um navegador suportado.
+    Você pode encontrar uma lista de navegadores suportados no wiki.
 error-javascript-conflict =
     Ruffle encontrou um grande problema ao tentar inicializar.
     Parece que esta página usa código JavaScript que entra em conflito com o Ruffle.

@@ -1,6 +1,6 @@
 use crate::avm1::Avm1;
 use crate::avm1::Value;
-use crate::avm2::{Activation, Avm2, EventObject, TObject};
+use crate::avm2::{Activation, Avm2, EventObject};
 use crate::context::{RenderContext, UpdateContext};
 pub use crate::display_object::{
     DisplayObject, TDisplayObject, TDisplayObjectContainer, TextSelection,
@@ -13,6 +13,7 @@ use either::Either;
 use gc_arena::barrier::unlock;
 use gc_arena::lock::Lock;
 use gc_arena::{Collect, Gc, Mutation};
+use ruffle_macros::istr;
 use std::cell::RefCell;
 use std::slice::Iter;
 use swf::{Color, Rectangle, Twips};
@@ -89,6 +90,7 @@ impl<'gc> FocusTracker<'gc> {
     /// Set the focus programmatically.
     pub fn set(&self, new: Option<InteractiveObject<'gc>>, context: &mut UpdateContext<'gc>) {
         self.set_internal(new, context, false);
+        self.update_edittext_selection(context);
     }
 
     /// Reset the focus programmatically.
@@ -137,6 +139,7 @@ impl<'gc> FocusTracker<'gc> {
         }
 
         self.set_internal(new, context, true);
+        self.update_edittext_selection(context);
     }
 
     fn set_internal(
@@ -152,6 +155,12 @@ impl<'gc> FocusTracker<'gc> {
             // FP executes rollOut/rollOver events synchronously when tabbing,
             // but asynchronously when setting focus programmatically.
             Player::run_actions(context);
+        }
+
+        if let Some(obj) = new {
+            // Flash has to access the object's bounds somewhere around here,
+            // because TextField's lazy autosize bounds are flushed when it's focused.
+            obj.as_displayobject().world_bounds();
         }
 
         let old = self.0.focus.get();
@@ -180,9 +189,8 @@ impl<'gc> FocusTracker<'gc> {
             if let Some(level0) = context.stage.root_clip() {
                 Avm1::notify_system_listeners(
                     level0,
-                    context,
-                    "Selection".into(),
-                    "onSetFocus".into(),
+                    istr!(context, "Selection"),
+                    istr!(context, "onSetFocus"),
                     &[
                         old.map(|o| o.as_displayobject())
                             .map(|v| v.object())
@@ -191,17 +199,8 @@ impl<'gc> FocusTracker<'gc> {
                             .map(|v| v.object())
                             .unwrap_or(Value::Null),
                     ],
+                    context,
                 );
-            }
-        }
-
-        // This applies even if the focused element hasn't changed.
-        if let Some(text_field) = self.get_as_edit_text() {
-            if text_field.is_editable() && !text_field.movie().is_action_script_3() {
-                // TODO This logic is inaccurate and addresses
-                //   only setting the focus programmatically.
-                let length = text_field.text_length();
-                text_field.set_selection(Some(TextSelection::for_range(0, length)), context.gc());
             }
         }
 
@@ -217,6 +216,23 @@ impl<'gc> FocusTracker<'gc> {
             }
         } else {
             context.ui.close_virtual_keyboard();
+        }
+    }
+
+    /// Update selection on the newly focused text field.
+    ///
+    /// This applies even if the focused element hasn't changed.
+    fn update_edittext_selection(&self, context: &mut UpdateContext<'gc>) {
+        // Only key and programmatic focus change should trigger this, because
+        // when focusing a text field with a mouse, a caret should be placed.
+        // Note that this may suggest we should reorder operations on the text field:
+        // first run this logic (and not care whether it's a mouse focus),
+        // and then handle placing the caret.
+        if let Some(text_field) = self.get_as_edit_text() {
+            if text_field.is_editable() && !text_field.movie().is_action_script_3() {
+                let length = text_field.text_length();
+                text_field.set_selection(Some(TextSelection::for_range(0, length)), context.gc());
+            }
         }
     }
 
@@ -244,7 +260,7 @@ impl<'gc> FocusTracker<'gc> {
             EventObject::focus_event(&mut activation, event_type, true, related_object, key_code);
         Avm2::dispatch_event(activation.context, event, target);
 
-        let canceled = event.as_event().unwrap().is_cancelled();
+        let canceled = event.event().is_cancelled();
         canceled
     }
 

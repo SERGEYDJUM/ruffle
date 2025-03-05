@@ -1,5 +1,4 @@
 use crate::avm2::activation::Activation;
-use crate::avm2::object::Object;
 use crate::avm2::parameters::ParametersExt;
 use crate::avm2::value::Value;
 use crate::avm2::Error;
@@ -8,7 +7,7 @@ use ruffle_wstr::from_utf8;
 
 pub fn _escape_xml<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    _this: Object<'gc>,
+    _this: Value<'gc>,
     args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
     let and = from_utf8("&");
@@ -30,7 +29,7 @@ pub fn _escape_xml<'gc>(
             .replace(gt.as_ref(), from_utf8("&gt;").as_ref())
             .replace(quote.as_ref(), from_utf8("&quot;").as_ref())
             .replace(apos.as_ref(), from_utf8("&apos;").as_ref());
-        Ok(AvmString::new(activation.context.gc_context, result).into())
+        Ok(AvmString::new(activation.gc(), result).into())
     } else {
         // Save the allocation, just return input
         Ok(input.into())

@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 use unic_langid::LanguageIdentifier;
 use url::Url;
 use wgpu::SurfaceError;
-use winit::dpi::PhysicalSize;
+use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::WindowEvent;
 use winit::event_loop::EventLoopProxy;
 use winit::keyboard::{Key, NamedKey};
@@ -255,6 +255,20 @@ impl GuiController {
         );
     }
 
+    pub fn height_offset(&self) -> f64 {
+        if self.window.fullscreen().is_some() || self.no_gui {
+            0.0
+        } else {
+            MENU_HEIGHT as f64 * self.window.scale_factor()
+        }
+    }
+
+    pub fn window_to_movie_position(&self, position: PhysicalPosition<f64>) -> (f64, f64) {
+        let x = position.x;
+        let y = position.y - self.height_offset();
+        (x, y)
+    }
+
     pub fn render(&mut self, mut player: Option<MutexGuard<Player>>) {
         let surface_texture = match self.surface.get_current_texture() {
             Ok(surface_texture) => surface_texture,
@@ -281,6 +295,10 @@ impl GuiController {
             Err(SurfaceError::OutOfMemory) => {
                 // Cannot help with that :(
                 panic!("wgpu: Out of memory: no more memory left to allocate a new frame");
+            }
+            Err(SurfaceError::Other) => {
+                // Generic error, not much we can do.
+                panic!("wgpu: Acquiring a texture failed with a generic error");
             }
         };
 
@@ -394,6 +412,7 @@ impl GuiController {
 
         command_buffers.push(encoder.finish());
         self.descriptors.queue.submit(command_buffers);
+        self.window.pre_present_notify();
         surface_texture.present();
     }
 
@@ -456,7 +475,7 @@ fn create_wgpu_instance(
 }
 
 fn try_wgpu_backend(backend: wgpu::Backends) -> Option<wgpu::Instance> {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
         backends: backend,
         flags: wgpu::InstanceFlags::default().with_env(),
         ..Default::default()

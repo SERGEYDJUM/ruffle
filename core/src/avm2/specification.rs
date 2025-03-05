@@ -305,9 +305,7 @@ impl Definition {
         for (key, value) in prototype_values.as_hashmap().iter() {
             let name = match key {
                 DynamicKey::String(name) => *name,
-                DynamicKey::Uint(key) => {
-                    AvmString::new_utf8(activation.context.gc_context, key.to_string())
-                }
+                DynamicKey::Uint(key) => AvmString::new_utf8(activation.gc(), key.to_string()),
                 DynamicKey::Object(object) => {
                     Value::Object(*object).coerce_to_string(activation).unwrap()
                 }
@@ -345,10 +343,12 @@ impl Definition {
         activation: &mut Activation<'_, 'gc>,
     ) {
         if let Some(object) = value.as_object() {
-            if let Some(executable) = object.as_executable() {
+            if let Some(function_object) = object.as_function_object() {
+                let executable = function_object.executable();
+
                 output.get_or_insert_with(Default::default).function.insert(
                     name.to_string(),
-                    FunctionInfo::from_bound_method(&executable, false),
+                    FunctionInfo::from_bound_method(executable, false),
                 );
             }
         } else {
@@ -442,7 +442,6 @@ impl Definition {
                     );
                 }
                 TraitKind::Class { .. } => {}
-                TraitKind::Function { .. } => {}
                 TraitKind::Const {
                     type_name,
                     default_value,
@@ -492,21 +491,23 @@ pub fn capture_specification(context: &mut UpdateContext, output: &Path) {
                 let class_name = class
                     .inner_class_definition()
                     .name()
-                    .to_qualified_name_err_message(activation.context.gc_context)
+                    .to_qualified_name_err_message(activation.gc())
                     .to_string();
                 let class_stubs = ClassStubs::for_class(&class_name, &stubs);
                 definitions.insert(
                     class_name,
                     Definition::from_class(class, &mut activation, &class_stubs),
                 );
-            } else if let Some(executable) = object.as_executable() {
+            } else if let Some(function_object) = object.as_function_object() {
+                let executable = function_object.executable();
+
                 let namespace_stubs = ClassStubs::for_class(&namespace_uri, &stubs);
                 let definition = definitions.entry(namespace_uri.into()).or_default();
                 let instance_traits = definition
                     .instance_traits
                     .get_or_insert_with(Default::default);
                 let fn_info =
-                    FunctionInfo::from_bound_method(&executable, namespace_stubs.has_method(&name));
+                    FunctionInfo::from_bound_method(executable, namespace_stubs.has_method(&name));
                 instance_traits.function.insert(name.into(), fn_info);
             }
         } else {

@@ -41,7 +41,7 @@ pub fn byte_array_allocator<'gc>(
     let base = ScriptObjectData::new(class);
 
     Ok(ByteArrayObject(Gc::new(
-        activation.context.gc_context,
+        activation.gc(),
         ByteArrayObjectData {
             base,
             storage: RefCell::new(storage),
@@ -85,20 +85,19 @@ impl<'gc> ByteArrayObject<'gc> {
     pub fn from_storage(
         activation: &mut Activation<'_, 'gc>,
         bytes: ByteArrayStorage,
-    ) -> Result<Object<'gc>, Error<'gc>> {
+    ) -> Result<ByteArrayObject<'gc>, Error<'gc>> {
         let class = activation.avm2().classes().bytearray;
         let base = ScriptObjectData::new(class);
 
-        let instance: Object<'gc> = ByteArrayObject(Gc::new(
-            activation.context.gc_context,
+        let instance = ByteArrayObject(Gc::new(
+            activation.gc(),
             ByteArrayObjectData {
                 base,
                 storage: RefCell::new(bytes),
             },
-        ))
-        .into();
+        ));
 
-        class.call_super_init(instance.into(), &[], activation)?;
+        class.call_init(instance.into(), &[], activation)?;
 
         Ok(instance)
     }

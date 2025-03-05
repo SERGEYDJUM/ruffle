@@ -3,7 +3,6 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use downcast_rs::{impl_downcast, Downcast};
-use ruffle_wstr::WStr;
 use swf::{Rectangle, Twips};
 
 use crate::backend::RenderBackend;
@@ -68,29 +67,7 @@ pub enum PixelSnapping {
     Never,
 }
 
-impl From<PixelSnapping> for &'static WStr {
-    fn from(value: PixelSnapping) -> &'static WStr {
-        match value {
-            PixelSnapping::Always => WStr::from_units(b"always"),
-            PixelSnapping::Auto => WStr::from_units(b"auto"),
-            PixelSnapping::Never => WStr::from_units(b"never"),
-        }
-    }
-}
-
 impl PixelSnapping {
-    pub fn from_wstr(str: &WStr) -> Option<Self> {
-        if str == b"always" {
-            Some(PixelSnapping::Always)
-        } else if str == b"auto" {
-            Some(PixelSnapping::Auto)
-        } else if str == b"never" {
-            Some(PixelSnapping::Never)
-        } else {
-            None
-        }
-    }
-
     pub fn apply(&self, matrix: &mut Matrix) {
         match self {
             PixelSnapping::Always => {
@@ -229,14 +206,14 @@ impl Bitmap {
 
     pub fn chroma_width(&self) -> u32 {
         match self.format {
-            BitmapFormat::Yuv420p | BitmapFormat::Yuva420p => (self.width + 1) / 2,
+            BitmapFormat::Yuv420p | BitmapFormat::Yuva420p => self.width.div_ceil(2),
             _ => unreachable!("Can't get chroma width for non-YUV bitmap"),
         }
     }
 
     pub fn chroma_height(&self) -> u32 {
         match self.format {
-            BitmapFormat::Yuv420p | BitmapFormat::Yuva420p => (self.height + 1) / 2,
+            BitmapFormat::Yuv420p | BitmapFormat::Yuva420p => self.height.div_ceil(2),
             _ => unreachable!("Can't get chroma height for non-YUV bitmap"),
         }
     }
@@ -296,9 +273,9 @@ impl BitmapFormat {
         match self {
             BitmapFormat::Rgb => width * height * 3,
             BitmapFormat::Rgba => width * height * 4,
-            BitmapFormat::Yuv420p => width * height + ((width + 1) / 2) * ((height + 1) / 2) * 2,
+            BitmapFormat::Yuv420p => width * height + width.div_ceil(2) * height.div_ceil(2) * 2,
             BitmapFormat::Yuva420p => {
-                width * height * 2 + ((width + 1) / 2) * ((height + 1) / 2) * 2
+                width * height * 2 + width.div_ceil(2) * height.div_ceil(2) * 2
             }
         }
     }
@@ -355,10 +332,7 @@ impl PixelRegion {
         let (min, max) = ((a.0.min(b.0), a.1.min(b.1)), (a.0.max(b.0), a.1.max(b.1)));
 
         // Increase max by one pixel as we've calculated the *encompassed* max
-        let max = (
-            max.0 + Twips::from_pixels_i32(1),
-            max.1 + Twips::from_pixels_i32(1),
-        );
+        let max = (max.0 + Twips::ONE_PX, max.1 + Twips::ONE_PX);
 
         // Make sure we're never going below 0
         Self {

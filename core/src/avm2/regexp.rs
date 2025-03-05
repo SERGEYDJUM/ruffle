@@ -6,11 +6,12 @@ use crate::avm2::activation::Activation;
 use crate::avm2::object::FunctionObject;
 use crate::avm2::object::TObject;
 use crate::avm2::Error;
-use crate::avm2::{ArrayObject, ArrayStorage, Object, Value};
+use crate::avm2::{ArrayObject, ArrayStorage, Value};
 use crate::string::WString;
 use crate::string::{AvmString, Units, WStrToUtf8};
 use bitflags::bitflags;
 use gc_arena::Collect;
+use ruffle_macros::istr;
 use ruffle_wstr::WStr;
 
 use super::object::RegExpObject;
@@ -52,12 +53,9 @@ bitflags! {
 }
 
 impl<'gc> RegExp<'gc> {
-    pub fn new<S>(source: S) -> Self
-    where
-        S: Into<AvmString<'gc>>,
-    {
+    pub fn new(source: AvmString<'gc>) -> Self {
         Self {
-            source: source.into(),
+            source,
             flags: RegExpFlags::empty(),
             last_index: 0,
             cached_regex: None,
@@ -69,12 +67,9 @@ impl<'gc> RegExp<'gc> {
         self.source
     }
 
-    pub fn set_source<S>(&mut self, source: S)
-    where
-        S: Into<AvmString<'gc>>,
-    {
+    pub fn set_source(&mut self, source: AvmString<'gc>) {
         self.cached_regex = None;
-        self.source = source.into();
+        self.source = source;
     }
 
     pub fn flags(&self) -> RegExpFlags {
@@ -188,18 +183,30 @@ impl<'gc> RegExp<'gc> {
                             continue;
                         }
                         let mut grp_index = d_u;
-                        if let Some(Ok(next_char)) = chars.peek() {
+                        let mut second_char = None;
+                        if let Some(&Ok(next_char)) = chars.peek() {
                             if let Some(d1) = next_char.to_digit(10) {
                                 let d1_u = usize::try_from(d1).unwrap_or(0);
                                 let two_digit_index = d_u * 10 + d1_u;
-                                if two_digit_index <= m.captures.len() {
+                                if two_digit_index <= m.captures.len() && two_digit_index != 0 {
                                     chars.next();
-                                    grp_index = two_digit_index
+                                    grp_index = two_digit_index;
+                                    second_char = Some(next_char);
                                 }
                             }
                         }
+                        if grp_index == 0 {
+                            ret.push_char('$');
+                            ret.push_char(n);
+                            continue;
+                        }
                         if let Some(Some(r)) = m.captures.get(grp_index - 1) {
                             ret.push_str(&text[r.start..r.end])
+                        }
+                        // two digit codes with a leading zero have the second digit appended after
+                        // the replacement text
+                        if let Some(c) = second_char.filter(|_| d_u == 0) {
+                            ret.push_char(c);
                         }
                         continue;
                     }
@@ -225,15 +232,13 @@ impl<'gc> RegExp<'gc> {
             let args = std::iter::once(Some(&m.range))
                 .chain((m.captures.iter()).map(|x| x.as_ref()))
                 .map(|o| match o {
-                    Some(r) => {
-                        AvmString::new(activation.context.gc_context, &txt[r.start..r.end]).into()
-                    }
-                    None => activation.strings().empty().into(),
+                    Some(r) => AvmString::new(activation.gc(), &txt[r.start..r.end]).into(),
+                    None => istr!("").into(),
                 })
                 .chain(std::iter::once(m.range.start.into()))
                 .chain(std::iter::once((*txt).into()))
                 .collect::<Vec<_>>();
-            let r = f.call(Value::Null, &args, activation)?;
+            let r = f.call(activation, Value::Null, &args)?;
             return Ok(Cow::Owned(WString::from(
                 r.coerce_to_string(activation)?.as_wstr(),
             )));
@@ -314,7 +319,7 @@ impl<'gc> RegExp<'gc> {
         }
 
         ret.push_str(&text[start..]);
-        Ok(AvmString::new(activation.context.gc_context, ret))
+        Ok(AvmString::new(activation.gc(), ret))
     }
 
     pub fn split(
@@ -322,15 +327,13 @@ impl<'gc> RegExp<'gc> {
         activation: &mut Activation<'_, 'gc>,
         text: AvmString<'gc>,
         limit: usize,
-    ) -> Result<Object<'gc>, Error<'gc>> {
+    ) -> ArrayObject<'gc> {
         let mut storage = ArrayStorage::new(0);
         // The empty regex is a special case which splits into characters.
         if self.source.is_empty() {
             let mut it = text.chars().take(limit);
             while let Some(Ok(c)) = it.next() {
-                storage.push(
-                    AvmString::new(activation.context.gc_context, WString::from_char(c)).into(),
-                );
+                storage.push(AvmString::new(activation.gc(), WString::from_char(c)).into());
             }
             return ArrayObject::from_storage(activation, storage);
         }
@@ -340,16 +343,12 @@ impl<'gc> RegExp<'gc> {
             if m.range.end == start {
                 break;
             }
-            storage.push(
-                AvmString::new(activation.context.gc_context, &text[start..m.range.start]).into(),
-            );
+            storage.push(AvmString::new(activation.gc(), &text[start..m.range.start]).into());
             if storage.length() >= limit {
                 break;
             }
             for c in m.captures.iter().filter_map(Option::as_ref) {
-                storage.push(
-                    AvmString::new(activation.context.gc_context, &text[c.start..c.end]).into(),
-                );
+                storage.push(AvmString::new(activation.gc(), &text[c.start..c.end]).into());
                 if storage.length() >= limit {
                     break; // Intentional bug to match Flash.
                            // Causes adding parts past limit.
@@ -358,9 +357,11 @@ impl<'gc> RegExp<'gc> {
 
             start = m.range.end;
         }
+
         if storage.length() < limit {
-            storage.push(AvmString::new(activation.context.gc_context, &text[start..]).into());
+            storage.push(AvmString::new(activation.gc(), &text[start..]).into());
         }
+
         ArrayObject::from_storage(activation, storage)
     }
 

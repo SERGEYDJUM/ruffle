@@ -31,7 +31,7 @@ export async function isRufflePlayerLoaded(
             (player) =>
                 // https://github.com/webdriverio/webdriverio/issues/6486
                 // TODO: How can we import ReadyState enum?
-                (player as unknown as Player.PlayerElement).readyState,
+                (player as unknown as Player.PlayerElement).ruffle().readyState,
             await player,
         )) === 2
     );
@@ -106,10 +106,10 @@ export async function setupAndPlay(
             // https://github.com/webdriverio/webdriverio/issues/6486
             const player = playerElement as unknown as Player.PlayerElement;
             player.__ruffle_log__ = "";
-            player.traceObserver = (msg) => {
+            player.ruffle().traceObserver = (msg) => {
                 player.__ruffle_log__ += msg + "\n";
             };
-            player.play();
+            player.ruffle().resume();
         },
         await player,
     );
@@ -197,7 +197,9 @@ export function loadJsAPI(swf?: string) {
             await browser.execute(
                 async (player, swf) => {
                     // https://github.com/webdriverio/webdriverio/issues/6486
-                    await (player as unknown as Player.PlayerElement).load(swf);
+                    await (player as unknown as Player.PlayerElement)
+                        .ruffle()
+                        .load(swf);
                 },
                 player,
                 swf,
@@ -205,4 +207,29 @@ export function loadJsAPI(swf?: string) {
             await playAndMonitor(browser, player);
         }
     });
+}
+
+export async function closeAllModals(
+    browser: WebdriverIO.Browser,
+    player: ChainablePromiseElement,
+) {
+    await browser.execute(
+        (modals) => {
+            for (const modal of modals) {
+                const m = modal as unknown as HTMLElement;
+                const cl = m.querySelector(".close-modal")! as HTMLElement;
+                cl.click();
+            }
+        },
+        await player.$$(".modal:not(.hidden)"),
+    );
+}
+
+export async function hideHardwareAccelerationModal(
+    browser: WebdriverIO.Browser,
+    player: ChainablePromiseElement,
+) {
+    // Trigger it if not triggered yet
+    await player.moveTo();
+    await closeAllModals(browser, player);
 }

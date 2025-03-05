@@ -17,9 +17,10 @@ use crate::display_object::{
     DisplayObject, DisplayObjectBase, TDisplayObject, TDisplayObjectContainer,
 };
 use crate::events::{ClipEvent, ClipEventResult, MouseButton};
+use crate::string::AvmString;
 use bitflags::bitflags;
 use gc_arena::{Collect, Mutation};
-use ruffle_macros::enum_trait_object;
+use ruffle_macros::{enum_trait_object, istr};
 use std::cell::{Ref, RefMut};
 use std::fmt::Debug;
 use swf::{Point, Rectangle, Twips};
@@ -323,9 +324,11 @@ pub trait TInteractiveObject<'gc>:
                     .contains(InteractiveObjectFlags::DOUBLE_CLICK_ENABLED);
 
                 if is_double_click && double_click_enabled {
+                    let string_double_click = istr!("doubleClick");
+
                     let avm2_event = Avm2EventObject::mouse_event(
                         &mut activation,
-                        "doubleClick",
+                        string_double_click,
                         self.as_displayobject(),
                         None,
                         0,
@@ -358,9 +361,11 @@ pub trait TInteractiveObject<'gc>:
                 Avm2::dispatch_event(activation.context, avm2_event, target).into()
             }
             ClipEvent::ReleaseOutside => {
+                let string_release_outside = istr!("releaseOutside");
+
                 let avm2_event = Avm2EventObject::mouse_event(
                     &mut activation,
-                    "releaseOutside",
+                    string_release_outside,
                     self.as_displayobject(),
                     None,
                     0,
@@ -371,9 +376,11 @@ pub trait TInteractiveObject<'gc>:
                 Avm2::dispatch_event(activation.context, avm2_event, target).into()
             }
             ClipEvent::RollOut { to } | ClipEvent::DragOut { to } => {
+                let string_mouse_out = istr!("mouseOut");
+
                 let avm2_event = Avm2EventObject::mouse_event(
                     &mut activation,
-                    "mouseOut",
+                    string_mouse_out,
                     self.as_displayobject(),
                     to,
                     0,
@@ -395,9 +402,11 @@ pub trait TInteractiveObject<'gc>:
                         break;
                     }
 
+                    let string_roll_out = istr!("rollOut");
+
                     let avm2_event = Avm2EventObject::mouse_event(
                         &mut activation,
-                        "rollOut",
+                        string_roll_out,
                         tgt,
                         to,
                         0,
@@ -429,9 +438,11 @@ pub trait TInteractiveObject<'gc>:
                         break;
                     }
 
+                    let string_roll_over = istr!("rollOver");
+
                     let avm2_event = Avm2EventObject::mouse_event(
                         &mut activation,
-                        "rollOver",
+                        string_roll_over,
                         tgt,
                         from,
                         0,
@@ -447,9 +458,11 @@ pub trait TInteractiveObject<'gc>:
                     rollover_target = tgt.parent();
                 }
 
+                let string_mouse_over = istr!("mouseOver");
+
                 let avm2_event = Avm2EventObject::mouse_event(
                     &mut activation,
-                    "mouseOver",
+                    string_mouse_over,
                     self.as_displayobject(),
                     from,
                     0,
@@ -462,9 +475,11 @@ pub trait TInteractiveObject<'gc>:
                 handled.into()
             }
             ClipEvent::MouseWheel { delta } => {
+                let string_mouse_wheel = istr!("mouseWheel");
+
                 let avm2_event = Avm2EventObject::mouse_event(
                     &mut activation,
-                    "mouseWheel",
+                    string_mouse_wheel,
                     self.as_displayobject(),
                     None,
                     delta.lines() as i32,
@@ -475,9 +490,11 @@ pub trait TInteractiveObject<'gc>:
                 Avm2::dispatch_event(activation.context, avm2_event, target).into()
             }
             ClipEvent::MouseMoveInside => {
+                let string_mouse_move = istr!("mouseMove");
+
                 let avm2_event = Avm2EventObject::mouse_event(
                     &mut activation,
-                    "mouseMove",
+                    string_mouse_move,
                     self.as_displayobject(),
                     None,
                     0,
@@ -591,12 +608,14 @@ pub trait TInteractiveObject<'gc>:
             let other = other
                 .map(|d| d.as_displayobject().object())
                 .unwrap_or(Avm1Value::Null);
+
             let method_name = if focused {
-                "onSetFocus".into()
+                AvmString::new_utf8(context.gc(), "onSetFocus")
             } else {
-                "onKillFocus".into()
+                AvmString::new_utf8(context.gc(), "onKillFocus")
             };
-            Avm1::run_stack_frame_for_method(self_do, object, context, method_name, &[other]);
+
+            Avm1::run_stack_frame_for_method(self_do, object, method_name, &[other], context);
         } else if let Avm2Value::Object(object) = self_do.object2() {
             let mut activation = Avm2Activation::from_nothing(context);
             let event_name = if focused { "focusIn" } else { "focusOut" };
@@ -643,10 +662,11 @@ pub trait TInteractiveObject<'gc>:
                 .tab_enabled
                 .unwrap_or_else(|| self.tab_enabled_default(context))
         } else {
-            self.as_displayobject()
-                .get_avm1_boolean_property(context, "tabEnabled", |context| {
-                    self.tab_enabled_default(context)
-                })
+            self.as_displayobject().get_avm1_boolean_property(
+                istr!(context, "tabEnabled"),
+                context,
+                |context| self.tab_enabled_default(context),
+            )
         }
     }
 
@@ -658,8 +678,11 @@ pub trait TInteractiveObject<'gc>:
         if self.as_displayobject().movie().is_action_script_3() {
             self.raw_interactive_mut(context.gc()).tab_enabled = Some(value)
         } else {
-            self.as_displayobject()
-                .set_avm1_property(context, "tabEnabled", value.into());
+            self.as_displayobject().set_avm1_property(
+                istr!(context, "tabEnabled"),
+                value.into(),
+                context,
+            );
         }
     }
 

@@ -1,4 +1,21 @@
+use crate::avm2::error::{make_error_2008, type_error};
+use crate::avm2::globals::flash::display::shader_job::get_shader_args;
+use crate::avm2::globals::slots::flash_filters_bevel_filter as bevel_filter_slots;
+use crate::avm2::globals::slots::flash_filters_blur_filter as blur_filter_slots;
+use crate::avm2::globals::slots::flash_filters_color_matrix_filter as color_matrix_filter_slots;
+use crate::avm2::globals::slots::flash_filters_convolution_filter as convolution_filter_slots;
+use crate::avm2::globals::slots::flash_filters_displacement_map_filter as displacement_map_filter_slots;
+use crate::avm2::globals::slots::flash_filters_drop_shadow_filter as drop_shadow_filter_slots;
+use crate::avm2::globals::slots::flash_filters_glow_filter as glow_filter_slots;
+use crate::avm2::globals::slots::flash_filters_gradient_bevel_filter as gradient_bevel_filter_slots;
+use crate::avm2::globals::slots::flash_filters_gradient_glow_filter as gradient_glow_filter_slots;
+use crate::avm2::globals::slots::flash_filters_shader_filter as shader_filter_slots;
+use crate::avm2::globals::slots::flash_geom_point as point_slots;
+use crate::avm2::object::{ArrayObject, ClassObject, Object, TObject};
+use crate::avm2::{Activation, Error, Value};
+
 use gc_arena::{Collect, DynamicRoot, Rootable};
+use ruffle_macros::istr;
 use ruffle_render::filters::{
     DisplacementMapFilter, DisplacementMapFilterMode, Filter, ShaderFilter, ShaderObject,
 };
@@ -9,11 +26,6 @@ use swf::{
     Fixed8, GlowFilter, GlowFilterFlags, GradientFilter, GradientFilterFlags, GradientRecord,
 };
 
-use crate::avm2::error::{make_error_2008, type_error};
-use crate::avm2::{Activation, ArrayObject, ClassObject, Error, Object, TObject, Value};
-
-use super::globals::flash::display::shader_job::get_shader_args;
-
 pub trait FilterAvm2Ext {
     fn from_avm2_object<'gc>(
         activation: &mut Activation<'_, 'gc>,
@@ -23,7 +35,7 @@ pub trait FilterAvm2Ext {
     fn as_avm2_object<'gc>(
         &self,
         activation: &mut Activation<'_, 'gc>,
-    ) -> Result<Object<'gc>, Error<'gc>>;
+    ) -> Result<Value<'gc>, Error<'gc>>;
 }
 
 #[derive(Clone, Collect)]
@@ -167,7 +179,7 @@ impl FilterAvm2Ext for Filter {
     fn as_avm2_object<'gc>(
         &self,
         activation: &mut Activation<'_, 'gc>,
-    ) -> Result<Object<'gc>, Error<'gc>> {
+    ) -> Result<Value<'gc>, Error<'gc>> {
         match self {
             Filter::BevelFilter(filter) => bevel_filter_to_avm2(activation, filter),
             Filter::BlurFilter(filter) => blur_filter_to_avm2(activation, filter),
@@ -196,40 +208,40 @@ fn avm2_to_bevel_filter<'gc>(
     object: Object<'gc>,
 ) -> Result<Filter, Error<'gc>> {
     let angle = object
-        .get_public_property("angle", activation)?
+        .get_slot(bevel_filter_slots::ANGLE)
         .coerce_to_number(activation)?;
     let blur_x = object
-        .get_public_property("blurX", activation)?
+        .get_slot(bevel_filter_slots::BLUR_X)
         .coerce_to_number(activation)?;
     let blur_y = object
-        .get_public_property("blurY", activation)?
+        .get_slot(bevel_filter_slots::BLUR_Y)
         .coerce_to_number(activation)?;
     let distance = object
-        .get_public_property("distance", activation)?
+        .get_slot(bevel_filter_slots::DISTANCE)
         .coerce_to_number(activation)?;
     let highlight_alpha = object
-        .get_public_property("highlightAlpha", activation)?
+        .get_slot(bevel_filter_slots::HIGHLIGHT_ALPHA)
         .coerce_to_number(activation)?;
     let highlight_color = object
-        .get_public_property("highlightColor", activation)?
+        .get_slot(bevel_filter_slots::HIGHLIGHT_COLOR)
         .coerce_to_u32(activation)?;
     let knockout = object
-        .get_public_property("knockout", activation)?
+        .get_slot(bevel_filter_slots::KNOCKOUT)
         .coerce_to_boolean();
     let quality = object
-        .get_public_property("quality", activation)?
+        .get_slot(bevel_filter_slots::QUALITY)
         .coerce_to_u32(activation)?;
     let shadow_alpha = object
-        .get_public_property("shadowAlpha", activation)?
+        .get_slot(bevel_filter_slots::SHADOW_ALPHA)
         .coerce_to_number(activation)?;
     let shadow_color = object
-        .get_public_property("shadowColor", activation)?
+        .get_slot(bevel_filter_slots::SHADOW_COLOR)
         .coerce_to_u32(activation)?;
     let strength = object
-        .get_public_property("strength", activation)?
+        .get_slot(bevel_filter_slots::STRENGTH)
         .coerce_to_number(activation)?;
     let bevel_type = object
-        .get_public_property("type", activation)?
+        .get_slot(bevel_filter_slots::TYPE)
         .coerce_to_string(activation)?;
     let mut flags = BevelFilterFlags::COMPOSITE_SOURCE;
     if &bevel_type == b"inner" {
@@ -254,7 +266,7 @@ fn avm2_to_bevel_filter<'gc>(
 fn bevel_filter_to_avm2<'gc>(
     activation: &mut Activation<'_, 'gc>,
     filter: &BevelFilter,
-) -> Result<Object<'gc>, Error<'gc>> {
+) -> Result<Value<'gc>, Error<'gc>> {
     activation.avm2().classes().bevelfilter.construct(
         activation,
         &[
@@ -269,11 +281,11 @@ fn bevel_filter_to_avm2<'gc>(
             filter.strength.to_f64().into(),
             filter.num_passes().into(),
             if filter.is_on_top() {
-                "full"
+                istr!("full")
             } else if filter.is_inner() {
-                "inner"
+                istr!("inner")
             } else {
-                "outer"
+                istr!("outer")
             }
             .into(),
             filter.is_knockout().into(),
@@ -286,13 +298,13 @@ fn avm2_to_blur_filter<'gc>(
     object: Object<'gc>,
 ) -> Result<Filter, Error<'gc>> {
     let blur_x = object
-        .get_public_property("blurX", activation)?
+        .get_slot(blur_filter_slots::BLUR_X)
         .coerce_to_number(activation)?;
     let blur_y = object
-        .get_public_property("blurY", activation)?
+        .get_slot(blur_filter_slots::BLUR_Y)
         .coerce_to_number(activation)?;
     let quality = object
-        .get_public_property("quality", activation)?
+        .get_slot(blur_filter_slots::QUALITY)
         .coerce_to_u32(activation)?;
     Ok(Filter::BlurFilter(BlurFilter {
         blur_x: Fixed16::from_f64(blur_x.max(0.0)),
@@ -304,7 +316,7 @@ fn avm2_to_blur_filter<'gc>(
 fn blur_filter_to_avm2<'gc>(
     activation: &mut Activation<'_, 'gc>,
     filter: &BlurFilter,
-) -> Result<Object<'gc>, Error<'gc>> {
+) -> Result<Value<'gc>, Error<'gc>> {
     activation.avm2().classes().blurfilter.construct(
         activation,
         &[
@@ -321,7 +333,7 @@ fn avm2_to_color_matrix_filter<'gc>(
 ) -> Result<Filter, Error<'gc>> {
     let mut matrix = [0.0; 20];
     if let Some(matrix_object) = object
-        .get_public_property("matrix", activation)?
+        .get_slot(color_matrix_filter_slots::_MATRIX)
         .as_object()
     {
         if let Some(array) = matrix_object.as_array_storage() {
@@ -339,11 +351,11 @@ fn avm2_to_color_matrix_filter<'gc>(
 fn color_matrix_filter_to_avm2<'gc>(
     activation: &mut Activation<'_, 'gc>,
     filter: &ColorMatrixFilter,
-) -> Result<Object<'gc>, Error<'gc>> {
+) -> Result<Value<'gc>, Error<'gc>> {
     let matrix = ArrayObject::from_storage(
         activation,
         filter.matrix.iter().map(|v| Value::from(*v)).collect(),
-    )?;
+    );
     activation
         .avm2()
         .classes()
@@ -357,7 +369,7 @@ fn avm2_to_convolution_filter<'gc>(
 ) -> Result<Filter, Error<'gc>> {
     let mut matrix = vec![];
     if let Some(matrix_object) = object
-        .get_public_property("matrix", activation)?
+        .get_slot(convolution_filter_slots::MATRIX)
         .as_object()
     {
         if let Some(array) = matrix_object.as_array_storage() {
@@ -371,28 +383,28 @@ fn avm2_to_convolution_filter<'gc>(
         }
     }
     let alpha = object
-        .get_public_property("alpha", activation)?
+        .get_slot(convolution_filter_slots::ALPHA)
         .coerce_to_number(activation)?;
     let bias = object
-        .get_public_property("bias", activation)?
+        .get_slot(convolution_filter_slots::BIAS)
         .coerce_to_number(activation)?;
     let clamp = object
-        .get_public_property("clamp", activation)?
+        .get_slot(convolution_filter_slots::CLAMP)
         .coerce_to_boolean();
     let color = object
-        .get_public_property("color", activation)?
+        .get_slot(convolution_filter_slots::COLOR)
         .coerce_to_u32(activation)?;
     let divisor = object
-        .get_public_property("divisor", activation)?
+        .get_slot(convolution_filter_slots::DIVISOR)
         .coerce_to_number(activation)?;
     let matrix_x = object
-        .get_public_property("matrixX", activation)?
+        .get_slot(convolution_filter_slots::MATRIX_X)
         .coerce_to_u32(activation)?;
     let matrix_y = object
-        .get_public_property("matrixY", activation)?
+        .get_slot(convolution_filter_slots::MATRIX_Y)
         .coerce_to_u32(activation)?;
     let preserve_alpha = object
-        .get_public_property("preserveAlpha", activation)?
+        .get_slot(convolution_filter_slots::PRESERVE_ALPHA)
         .coerce_to_boolean();
     let mut flags = ConvolutionFilterFlags::empty();
     flags.set(ConvolutionFilterFlags::CLAMP, clamp);
@@ -414,7 +426,7 @@ fn avm2_to_convolution_filter<'gc>(
 fn convolution_filter_to_avm2<'gc>(
     activation: &mut Activation<'_, 'gc>,
     filter: &ConvolutionFilter,
-) -> Result<Object<'gc>, Error<'gc>> {
+) -> Result<Value<'gc>, Error<'gc>> {
     let matrix = ArrayObject::from_storage(
         activation,
         filter
@@ -422,7 +434,7 @@ fn convolution_filter_to_avm2<'gc>(
             .iter()
             .map(|v| Value::from(f64::from(*v)))
             .collect(),
-    )?;
+    );
     activation.avm2().classes().convolutionfilter.construct(
         activation,
         &[
@@ -444,31 +456,27 @@ fn avm2_to_displacement_map_filter<'gc>(
     object: Object<'gc>,
 ) -> Result<Filter, Error<'gc>> {
     let alpha = object
-        .get_public_property("alpha", activation)?
+        .get_slot(displacement_map_filter_slots::ALPHA)
         .coerce_to_number(activation)?;
     let color = object
-        .get_public_property("color", activation)?
+        .get_slot(displacement_map_filter_slots::COLOR)
         .coerce_to_u32(activation)?;
     let component_x = object
-        .get_public_property("componentX", activation)?
+        .get_slot(displacement_map_filter_slots::COMPONENT_X)
         .coerce_to_u32(activation)?;
     let component_y = object
-        .get_public_property("componentY", activation)?
+        .get_slot(displacement_map_filter_slots::COMPONENT_Y)
         .coerce_to_u32(activation)?;
     let map_point =
-        if let Value::Object(point) = object.get_public_property("mapPoint", activation)? {
+        if let Value::Object(point) = object.get_slot(displacement_map_filter_slots::MAP_POINT) {
             (
-                point
-                    .get_public_property("x", activation)?
-                    .coerce_to_i32(activation)?,
-                point
-                    .get_public_property("y", activation)?
-                    .coerce_to_i32(activation)?,
+                point.get_slot(point_slots::X).coerce_to_i32(activation)?,
+                point.get_slot(point_slots::Y).coerce_to_i32(activation)?,
             )
         } else {
             (0, 0)
         };
-    let mode = if let Value::String(mode) = object.get_public_property("mode", activation)? {
+    let mode = if let Value::String(mode) = object.get_slot(displacement_map_filter_slots::MODE) {
         if &mode == b"clamp" {
             DisplacementMapFilterMode::Clamp
         } else if &mode == b"ignore" {
@@ -484,16 +492,16 @@ fn avm2_to_displacement_map_filter<'gc>(
         DisplacementMapFilterMode::Wrap
     };
     let scale_x = object
-        .get_public_property("scaleX", activation)?
+        .get_slot(displacement_map_filter_slots::SCALE_X)
         .coerce_to_number(activation)?;
     let scale_y = object
-        .get_public_property("scaleY", activation)?
+        .get_slot(displacement_map_filter_slots::SCALE_Y)
         .coerce_to_number(activation)?;
     let map_bitmap = if let Value::Object(bitmap) =
-        object.get_public_property("mapBitmap", activation)?
+        object.get_slot(displacement_map_filter_slots::MAP_BITMAP)
     {
         if let Some(bitmap) = bitmap.as_bitmap_data() {
-            Some(bitmap.bitmap_handle(activation.context.gc_context, activation.context.renderer))
+            Some(bitmap.bitmap_handle(activation.gc(), activation.context.renderer))
         } else {
             return Err(Error::AvmError(type_error(
                 activation,
@@ -523,23 +531,23 @@ fn avm2_to_displacement_map_filter<'gc>(
 fn displacement_map_filter_to_avm2<'gc>(
     activation: &mut Activation<'_, 'gc>,
     filter: &DisplacementMapFilter,
-) -> Result<Object<'gc>, Error<'gc>> {
+) -> Result<Value<'gc>, Error<'gc>> {
     let point = activation.avm2().classes().point;
     let map_point = point.construct(
         activation,
         &[filter.map_point.0.into(), filter.map_point.1.into()],
     )?;
     let mode = match filter.mode {
-        DisplacementMapFilterMode::Clamp => "clamp",
-        DisplacementMapFilterMode::Color => "color",
-        DisplacementMapFilterMode::Ignore => "ignore",
-        DisplacementMapFilterMode::Wrap => "wrap",
+        DisplacementMapFilterMode::Clamp => istr!("clamp"),
+        DisplacementMapFilterMode::Color => istr!("color"),
+        DisplacementMapFilterMode::Ignore => istr!("ignore"),
+        DisplacementMapFilterMode::Wrap => istr!("wrap"),
     };
     activation.avm2().classes().displacementmapfilter.construct(
         activation,
         &[
             Value::Null, // TODO: This should be a BitmapData...
-            map_point.into(),
+            map_point,
             filter.component_x.into(),
             filter.component_y.into(),
             filter.scale_x.into(),
@@ -556,37 +564,37 @@ fn avm2_to_drop_shadow_filter<'gc>(
     object: Object<'gc>,
 ) -> Result<Filter, Error<'gc>> {
     let alpha = object
-        .get_public_property("alpha", activation)?
+        .get_slot(drop_shadow_filter_slots::ALPHA)
         .coerce_to_number(activation)?;
     let angle = object
-        .get_public_property("angle", activation)?
+        .get_slot(drop_shadow_filter_slots::ANGLE)
         .coerce_to_number(activation)?;
     let blur_x = object
-        .get_public_property("blurX", activation)?
+        .get_slot(drop_shadow_filter_slots::BLUR_X)
         .coerce_to_number(activation)?;
     let blur_y = object
-        .get_public_property("blurY", activation)?
+        .get_slot(drop_shadow_filter_slots::BLUR_Y)
         .coerce_to_number(activation)?;
     let color = object
-        .get_public_property("color", activation)?
+        .get_slot(drop_shadow_filter_slots::COLOR)
         .coerce_to_u32(activation)?;
     let distance = object
-        .get_public_property("distance", activation)?
+        .get_slot(drop_shadow_filter_slots::DISTANCE)
         .coerce_to_number(activation)?;
     let hide_object = object
-        .get_public_property("hideObject", activation)?
+        .get_slot(drop_shadow_filter_slots::HIDE_OBJECT)
         .coerce_to_boolean();
     let inner = object
-        .get_public_property("inner", activation)?
+        .get_slot(drop_shadow_filter_slots::INNER)
         .coerce_to_boolean();
     let knockout = object
-        .get_public_property("knockout", activation)?
+        .get_slot(drop_shadow_filter_slots::KNOCKOUT)
         .coerce_to_boolean();
     let quality = object
-        .get_public_property("quality", activation)?
+        .get_slot(drop_shadow_filter_slots::QUALITY)
         .coerce_to_u32(activation)?;
     let strength = object
-        .get_public_property("strength", activation)?
+        .get_slot(drop_shadow_filter_slots::STRENGTH)
         .coerce_to_number(activation)?;
     let mut flags = DropShadowFilterFlags::empty();
     if !hide_object {
@@ -609,7 +617,7 @@ fn avm2_to_drop_shadow_filter<'gc>(
 fn drop_shadow_filter_to_avm2<'gc>(
     activation: &mut Activation<'_, 'gc>,
     filter: &DropShadowFilter,
-) -> Result<Object<'gc>, Error<'gc>> {
+) -> Result<Value<'gc>, Error<'gc>> {
     activation.avm2().classes().dropshadowfilter.construct(
         activation,
         &[
@@ -633,28 +641,28 @@ fn avm2_to_glow_filter<'gc>(
     object: Object<'gc>,
 ) -> Result<Filter, Error<'gc>> {
     let alpha = object
-        .get_public_property("alpha", activation)?
+        .get_slot(glow_filter_slots::ALPHA)
         .coerce_to_number(activation)?;
     let blur_x = object
-        .get_public_property("blurX", activation)?
+        .get_slot(glow_filter_slots::BLUR_X)
         .coerce_to_number(activation)?;
     let blur_y = object
-        .get_public_property("blurY", activation)?
+        .get_slot(glow_filter_slots::BLUR_Y)
         .coerce_to_number(activation)?;
     let color = object
-        .get_public_property("color", activation)?
+        .get_slot(glow_filter_slots::COLOR)
         .coerce_to_u32(activation)?;
     let inner = object
-        .get_public_property("inner", activation)?
+        .get_slot(glow_filter_slots::INNER)
         .coerce_to_boolean();
     let knockout = object
-        .get_public_property("knockout", activation)?
+        .get_slot(glow_filter_slots::KNOCKOUT)
         .coerce_to_boolean();
     let quality = object
-        .get_public_property("quality", activation)?
+        .get_slot(glow_filter_slots::QUALITY)
         .coerce_to_u32(activation)?;
     let strength = object
-        .get_public_property("strength", activation)?
+        .get_slot(glow_filter_slots::STRENGTH)
         .coerce_to_number(activation)?;
     let mut flags = GlowFilterFlags::COMPOSITE_SOURCE;
     flags.set(GlowFilterFlags::INNER_GLOW, inner);
@@ -672,7 +680,7 @@ fn avm2_to_glow_filter<'gc>(
 fn glow_filter_to_avm2<'gc>(
     activation: &mut Activation<'_, 'gc>,
     filter: &GlowFilter,
-) -> Result<Object<'gc>, Error<'gc>> {
+) -> Result<Value<'gc>, Error<'gc>> {
     activation.avm2().classes().glowfilter.construct(
         activation,
         &[
@@ -692,29 +700,45 @@ fn avm2_to_gradient_filter<'gc>(
     activation: &mut Activation<'_, 'gc>,
     object: Object<'gc>,
 ) -> Result<GradientFilter, Error<'gc>> {
+    #[allow(clippy::assertions_on_constants)]
+    {
+        assert!(gradient_bevel_filter_slots::ANGLE == gradient_glow_filter_slots::ANGLE);
+        assert!(gradient_bevel_filter_slots::BLUR_X == gradient_glow_filter_slots::BLUR_X);
+        assert!(gradient_bevel_filter_slots::BLUR_Y == gradient_glow_filter_slots::BLUR_Y);
+        assert!(gradient_bevel_filter_slots::DISTANCE == gradient_glow_filter_slots::DISTANCE);
+        assert!(gradient_bevel_filter_slots::KNOCKOUT == gradient_glow_filter_slots::KNOCKOUT);
+        assert!(gradient_bevel_filter_slots::QUALITY == gradient_glow_filter_slots::QUALITY);
+        assert!(gradient_bevel_filter_slots::STRENGTH == gradient_glow_filter_slots::STRENGTH);
+        assert!(gradient_bevel_filter_slots::TYPE == gradient_glow_filter_slots::TYPE);
+
+        assert!(gradient_bevel_filter_slots::COLORS == gradient_glow_filter_slots::COLORS);
+        assert!(gradient_bevel_filter_slots::ALPHAS == gradient_glow_filter_slots::ALPHAS);
+        assert!(gradient_bevel_filter_slots::RATIOS == gradient_glow_filter_slots::RATIOS);
+    }
+
     let angle = object
-        .get_public_property("angle", activation)?
+        .get_slot(gradient_bevel_filter_slots::ANGLE)
         .coerce_to_number(activation)?;
     let blur_x = object
-        .get_public_property("blurX", activation)?
+        .get_slot(gradient_bevel_filter_slots::BLUR_X)
         .coerce_to_number(activation)?;
     let blur_y = object
-        .get_public_property("blurY", activation)?
+        .get_slot(gradient_bevel_filter_slots::BLUR_Y)
         .coerce_to_number(activation)?;
     let distance = object
-        .get_public_property("distance", activation)?
+        .get_slot(gradient_bevel_filter_slots::DISTANCE)
         .coerce_to_number(activation)?;
     let knockout = object
-        .get_public_property("knockout", activation)?
+        .get_slot(gradient_bevel_filter_slots::KNOCKOUT)
         .coerce_to_boolean();
     let quality = object
-        .get_public_property("quality", activation)?
+        .get_slot(gradient_bevel_filter_slots::QUALITY)
         .coerce_to_u32(activation)?;
     let strength = object
-        .get_public_property("strength", activation)?
+        .get_slot(gradient_bevel_filter_slots::STRENGTH)
         .coerce_to_number(activation)?;
     let bevel_type = object
-        .get_public_property("type", activation)?
+        .get_slot(gradient_bevel_filter_slots::TYPE)
         .coerce_to_string(activation)?;
     let colors = get_gradient_colors(activation, object)?;
     let mut flags = GradientFilterFlags::COMPOSITE_SOURCE;
@@ -740,7 +764,7 @@ fn gradient_filter_to_avm2<'gc>(
     activation: &mut Activation<'_, 'gc>,
     filter: &GradientFilter,
     class: ClassObject<'gc>,
-) -> Result<Object<'gc>, Error<'gc>> {
+) -> Result<Value<'gc>, Error<'gc>> {
     let colors = ArrayObject::from_storage(
         activation,
         filter
@@ -748,7 +772,7 @@ fn gradient_filter_to_avm2<'gc>(
             .iter()
             .map(|v| Value::from(v.color.to_rgb()))
             .collect(),
-    )?;
+    );
     let alphas = ArrayObject::from_storage(
         activation,
         filter
@@ -756,11 +780,11 @@ fn gradient_filter_to_avm2<'gc>(
             .iter()
             .map(|v| Value::from(f64::from(v.color.a) / 255.0))
             .collect(),
-    )?;
+    );
     let ratios = ArrayObject::from_storage(
         activation,
         filter.colors.iter().map(|v| Value::from(v.ratio)).collect(),
-    )?;
+    );
     class.construct(
         activation,
         &[
@@ -774,11 +798,11 @@ fn gradient_filter_to_avm2<'gc>(
             filter.strength.to_f64().into(),
             filter.num_passes().into(),
             if filter.is_on_top() {
-                "full"
+                istr!("full")
             } else if filter.is_inner() {
-                "inner"
+                istr!("inner")
             } else {
-                "outer"
+                istr!("outer")
             }
             .into(),
             filter.is_knockout().into(),
@@ -791,30 +815,30 @@ fn avm2_to_shader_filter<'gc>(
     object: Object<'gc>,
 ) -> Result<ShaderFilter<'static>, Error<'gc>> {
     let bottom_extension = object
-        .get_public_property("bottomExtension", activation)?
+        .get_slot(shader_filter_slots::_BOTTOM_EXTENSION)
         .coerce_to_i32(activation)?;
 
     let left_extension = object
-        .get_public_property("leftExtension", activation)?
+        .get_slot(shader_filter_slots::_LEFT_EXTENSION)
         .coerce_to_i32(activation)?;
 
     let right_extension = object
-        .get_public_property("rightExtension", activation)?
+        .get_slot(shader_filter_slots::_RIGHT_EXTENSION)
         .coerce_to_i32(activation)?;
 
     let top_extension = object
-        .get_public_property("topExtension", activation)?
+        .get_slot(shader_filter_slots::_TOP_EXTENSION)
         .coerce_to_i32(activation)?;
 
     let shader_obj = object
-        .get_public_property("shader", activation)?
+        .get_slot(shader_filter_slots::_SHADER)
         .as_object()
         .unwrap();
 
     let dyn_root = activation
         .context
         .dynamic_root
-        .stash(activation.context.gc_context, shader_obj);
+        .stash(activation.gc(), shader_obj);
 
     let (shader_handle, shader_args) = get_shader_args(shader_obj, activation)?;
 
@@ -832,7 +856,7 @@ fn avm2_to_shader_filter<'gc>(
 fn shader_filter_to_avm2<'gc>(
     activation: &mut Activation<'_, 'gc>,
     filter: &ShaderFilter<'static>,
-) -> Result<Object<'gc>, Error<'gc>> {
+) -> Result<Value<'gc>, Error<'gc>> {
     let object_wrapper: &ObjectWrapper = filter
         .shader_object
         .downcast_ref::<ObjectWrapper>()
@@ -852,17 +876,17 @@ fn get_gradient_colors<'gc>(
 ) -> Result<Vec<GradientRecord>, Error<'gc>> {
     let mut colors = vec![];
     if let Some(colors_object) = object
-        .get_public_property("colors", activation)?
+        .get_slot(gradient_bevel_filter_slots::COLORS)
         .as_object()
     {
         if let Some(colors_array) = colors_object.as_array_storage() {
             if let Some(alphas_object) = object
-                .get_public_property("alphas", activation)?
+                .get_slot(gradient_bevel_filter_slots::ALPHAS)
                 .as_object()
             {
                 if let Some(alphas_array) = alphas_object.as_array_storage() {
                     if let Some(ratios_object) = object
-                        .get_public_property("ratios", activation)?
+                        .get_slot(gradient_bevel_filter_slots::RATIOS)
                         .as_object()
                     {
                         if let Some(ratios_array) = ratios_object.as_array_storage() {

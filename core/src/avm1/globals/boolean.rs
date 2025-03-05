@@ -22,7 +22,7 @@ pub fn constructor<'gc>(
 ) -> Result<Value<'gc>, Error<'gc>> {
     let value = args
         .get(0)
-        .map_or(false, |value| value.as_bool(activation.swf_version()));
+        .is_some_and(|value| value.as_bool(activation.swf_version()));
     // Called from a constructor, populate `this`.
     let vbox = Gc::new(activation.gc(), value.into());
     this.set_native(activation.gc(), NativeObject::Value(vbox));
@@ -50,7 +50,7 @@ pub fn create_boolean_object<'gc>(
     fn_proto: Object<'gc>,
 ) -> Object<'gc> {
     FunctionObject::constructor(
-        context.gc_context,
+        context,
         Executable::Native(constructor),
         Executable::Native(boolean_function),
         fn_proto,
@@ -64,7 +64,7 @@ pub fn create_proto<'gc>(
     proto: Object<'gc>,
     fn_proto: Object<'gc>,
 ) -> Object<'gc> {
-    let boolean_proto = ScriptObject::new(context.gc(), Some(proto));
+    let boolean_proto = ScriptObject::new(context, Some(proto));
     define_properties_on(PROTO_DECLS, context, boolean_proto, fn_proto);
     boolean_proto.into()
 }
@@ -78,7 +78,7 @@ pub fn to_string<'gc>(
         // Must be a bool.
         // Boolean.prototype.toString.call(x) returns undefined for non-bools.
         if let Value::Bool(b) = *vbox {
-            return Ok(AvmString::new_utf8(activation.context.gc_context, b.to_string()).into());
+            return Ok(AvmString::new_utf8(activation.gc(), b.to_string()).into());
         }
     }
 

@@ -230,7 +230,7 @@ impl<'gc> Namespace<'gc> {
     ) -> Self {
         let atom = context.intern(package_name.into());
         Self(Some(Gc::new(
-            context.gc_context,
+            context.gc(),
             NamespaceData::Namespace(atom, api_version),
         )))
     }
@@ -242,7 +242,7 @@ impl<'gc> Namespace<'gc> {
     ) -> Self {
         let atom = context.intern(package_name.into());
         Self(Some(Gc::new(
-            context.gc_context,
+            context.gc(),
             NamespaceData::PackageInternal(atom),
         )))
     }
@@ -331,7 +331,7 @@ impl<'gc> Namespace<'gc> {
     }
 }
 
-/// List of common namespaces used in the rest of the AVM2.
+/// Common namespaces used in the AVM.
 #[derive(Collect)]
 #[collect(no_drop)]
 pub struct CommonNamespaces<'gc> {
@@ -339,17 +339,7 @@ pub struct CommonNamespaces<'gc> {
 
     pub(super) internal: Namespace<'gc>,
     pub(super) as3: Namespace<'gc>,
-    pub(super) vector_public: Namespace<'gc>,
     pub(super) vector_internal: Namespace<'gc>,
-    pub(super) proxy: Namespace<'gc>,
-
-    // These are required to facilitate shared access between Rust and AS.
-    pub(super) flash_display_internal: Namespace<'gc>,
-    pub(super) flash_utils_internal: Namespace<'gc>,
-    pub(super) flash_geom_internal: Namespace<'gc>,
-    pub(super) flash_events_internal: Namespace<'gc>,
-    pub(super) flash_text_engine_internal: Namespace<'gc>,
-    pub(super) flash_net_internal: Namespace<'gc>,
 
     pub(super) __ruffle__: Namespace<'gc>,
 }
@@ -358,29 +348,19 @@ impl<'gc> CommonNamespaces<'gc> {
     const PUBLIC_LEN: usize = ApiVersion::VM_INTERNAL as usize + 1;
 
     pub fn new(context: &mut StringContext<'gc>) -> Self {
+        let empty_string = context.empty();
+
         Self {
             public_namespaces: std::array::from_fn(|val| {
-                Namespace::package("", ApiVersion::from_usize(val).unwrap(), context)
+                Namespace::package(empty_string, ApiVersion::from_usize(val).unwrap(), context)
             }),
-            internal: Namespace::internal("", context),
+            internal: Namespace::internal(empty_string, context),
             as3: Namespace::package(
                 "http://adobe.com/AS3/2006/builtin",
                 ApiVersion::AllVersions,
                 context,
             ),
-            vector_public: Namespace::package("__AS3__.vec", ApiVersion::AllVersions, context),
             vector_internal: Namespace::internal("__AS3__.vec", context),
-            proxy: Namespace::package(
-                "http://www.adobe.com/2006/actionscript/flash/proxy",
-                ApiVersion::AllVersions,
-                context,
-            ),
-            flash_display_internal: Namespace::internal("flash.display", context),
-            flash_utils_internal: Namespace::internal("flash.utils", context),
-            flash_geom_internal: Namespace::internal("flash.geom", context),
-            flash_events_internal: Namespace::internal("flash.events", context),
-            flash_text_engine_internal: Namespace::internal("flash.text.engine", context),
-            flash_net_internal: Namespace::internal("flash.net", context),
 
             __ruffle__: Namespace::package("__ruffle__", ApiVersion::AllVersions, context),
         }

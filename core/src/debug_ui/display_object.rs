@@ -23,7 +23,10 @@ use egui::{
 };
 use ruffle_wstr::{WStr, WString};
 use std::borrow::Cow;
+use std::ops::RangeInclusive;
 use swf::{Color, ColorTransform, Fixed8, Rectangle, Twips};
+
+use super::common::show_text_format;
 
 const DEFAULT_DEBUG_COLORS: [[f32; 3]; 10] = [
     [0.00, 0.39, 0.00], // "darkgreen" / #006400
@@ -172,7 +175,7 @@ impl DisplayObjectWindow {
                         if let DisplayObject::MovieClip(object) = object {
                             self.show_movieclip(ui, context, object)
                         } else if let DisplayObject::EditText(object) = object {
-                            self.show_edit_text(ui, context, object)
+                            self.show_edit_text(ui, context, object, messages)
                         } else if let DisplayObject::Bitmap(object) = object {
                             self.show_bitmap(ui, context, object)
                         } else if let DisplayObject::Stage(object) = object {
@@ -205,7 +208,7 @@ impl DisplayObjectWindow {
                     let mut enabled = object.mouse_enabled();
                     Checkbox::new(&mut enabled, "Enabled").ui(ui);
                     if enabled != object.mouse_enabled() {
-                        object.set_mouse_enabled(context.gc_context, enabled);
+                        object.set_mouse_enabled(context.gc(), enabled);
                     }
                 });
                 ui.end_row();
@@ -215,7 +218,7 @@ impl DisplayObjectWindow {
                     let mut enabled = object.double_click_enabled();
                     Checkbox::new(&mut enabled, "Enabled").ui(ui);
                     if enabled != object.double_click_enabled() {
-                        object.set_double_click_enabled(context.gc_context, enabled);
+                        object.set_double_click_enabled(context.gc(), enabled);
                     }
                 });
                 ui.end_row();
@@ -306,6 +309,7 @@ impl DisplayObjectWindow {
         ui: &mut Ui,
         context: &mut UpdateContext<'gc>,
         object: EditText<'gc>,
+        messages: &mut Vec<Message>,
     ) {
         Grid::new(ui.id().with("edittext"))
             .num_columns(2)
@@ -424,6 +428,37 @@ impl DisplayObjectWindow {
                 });
                 ui.end_row();
 
+                ui.label("H Scroll");
+                ui.horizontal(|ui| {
+                    let max = object.maxhscroll();
+                    let mut hscroll = object.hscroll();
+                    DragValue::new(&mut hscroll)
+                        .suffix("px")
+                        .range(RangeInclusive::new(0.0, max))
+                        .ui(ui);
+                    ui.weak(format!("(max {}px)", max));
+
+                    if hscroll != object.hscroll() {
+                        object.set_hscroll(hscroll, context);
+                    }
+                });
+                ui.end_row();
+
+                ui.label("V Scroll");
+                ui.horizontal(|ui| {
+                    let max = object.maxscroll();
+                    let mut scroll = object.scroll();
+                    DragValue::new(&mut scroll)
+                        .range(RangeInclusive::new(1, max))
+                        .ui(ui);
+                    ui.weak(format!("(max {})", max));
+
+                    if scroll != object.scroll() {
+                        object.set_scroll(scroll as f64, context);
+                    }
+                });
+                ui.end_row();
+
                 ui.label("Autosize");
                 ui.horizontal(|ui| {
                     let mut autosize = object.autosize();
@@ -498,14 +533,41 @@ impl DisplayObjectWindow {
 
                 ui.label("Default Text Format");
                 ui.horizontal(|ui| {
-                    show_text_format(ui, object.spans().default_format());
+                    show_text_format_hover(ui, object.spans().default_format());
                 });
+                ui.end_row();
+
+                ui.label("Style Sheet");
+                if let Some(style_sheet) = object.style_sheet_avm1() {
+                    if ui.button(format!("{:p}", style_sheet.as_ptr())).clicked() {
+                        messages.push(Message::TrackAVM1Object(AVM1ObjectHandle::new(
+                            context,
+                            style_sheet,
+                        )));
+                    }
+                } else if let Some(style_sheet) = object.style_sheet_avm2() {
+                    if ui.button(format!("{:p}", style_sheet.as_ptr())).clicked() {
+                        messages.push(Message::TrackAVM2Object(AVM2ObjectHandle::new(
+                            context,
+                            crate::avm2::Object::StyleSheetObject(style_sheet),
+                        )));
+                    }
+                } else {
+                    ui.weak("None");
+                }
+                ui.end_row();
+
+                ui.label("Text Width");
+                ui.label(format!("{}", object.measure_text(context).0.to_pixels()));
+                ui.end_row();
+
+                ui.label("Text Height");
+                ui.label(format!("{}", object.measure_text(context).1.to_pixels()));
                 ui.end_row();
 
                 ui.label("Layout Debug Boxes");
                 ui.vertical(|ui| {
                     for (name, flag) in [
-                        ("Text Exterior", LayoutDebugBoxesFlag::TEXT_EXTERIOR),
                         ("Text", LayoutDebugBoxesFlag::TEXT),
                         ("Line", LayoutDebugBoxesFlag::LINE),
                         ("Box", LayoutDebugBoxesFlag::BOX),
@@ -546,7 +608,7 @@ impl DisplayObjectWindow {
                             ui.label(format!("{}–{} ({})", start, end, format.span_length));
 
                             ui.horizontal(|ui| {
-                                show_text_format(ui, &format.get_text_format());
+                                show_text_format_hover(ui, &format.get_text_format());
                             });
 
                             ui.label(text.to_string());
@@ -925,7 +987,7 @@ impl DisplayObjectWindow {
 
                 ui.label("AVM2 Root");
                 if let Some(other) = object.avm2_root() {
-                    if object.as_ptr() != object.as_ptr() {
+                    if other.as_ptr() != object.as_ptr() {
                         open_display_object_button(
                             ui,
                             context,
@@ -979,13 +1041,13 @@ impl DisplayObjectWindow {
                         let mut enabled = object.is_bitmap_cached_preference();
                         Checkbox::new(&mut enabled, "Enabled").ui(ui);
                         if enabled != object.is_bitmap_cached_preference() {
-                            object.set_bitmap_cached_preference(context.gc_context, enabled);
+                            object.set_bitmap_cached_preference(context.gc(), enabled);
                         }
                     } else {
                         ui.label("Forced due to filters");
                     }
                     if ui.button("Invalidate").clicked() {
-                        object.invalidate_cached_bitmap(context.gc_context);
+                        object.invalidate_cached_bitmap(context.gc());
                     }
                 });
                 ui.end_row();
@@ -1018,7 +1080,7 @@ impl DisplayObjectWindow {
                     });
                 ui.end_row();
                 if new_blend != old_blend {
-                    object.set_blend_mode(context.gc_context, new_blend);
+                    object.set_blend_mode(context.gc(), new_blend);
                 }
 
                 let color_transform = *object.base().color_transform();
@@ -1032,7 +1094,7 @@ impl DisplayObjectWindow {
                         let mut enabled = obj.raw_container().mouse_children();
                         Checkbox::new(&mut enabled, "Enabled").ui(ui);
                         if enabled != obj.raw_container().mouse_children() {
-                            obj.raw_container_mut(context.gc_context)
+                            obj.raw_container_mut(context.gc())
                                 .set_mouse_children(enabled);
                         }
                     });
@@ -1075,7 +1137,9 @@ impl DisplayObjectWindow {
                 ui.label("Name");
                 // &mut of a temporary thing because we don't want to actually be able to change this
                 // If we disable it, the user can't highlight or interact with it, so this makes it readonly but enabled
-                ui.text_edit_singleline(&mut object.name().to_string());
+                ui.text_edit_singleline(
+                    &mut object.name().map(|s| s.to_string()).unwrap_or_default(),
+                );
                 ui.end_row();
 
                 if let crate::avm1::Value::Object(object) = object.object() {
@@ -1136,14 +1200,6 @@ impl DisplayObjectWindow {
                 ui.label(object.clip_depth().to_string());
                 ui.end_row();
 
-                ui.label("World Bounds");
-                bounds_label(ui, object.world_bounds(), &mut self.hovered_bounds);
-                ui.end_row();
-
-                ui.label("Local Bounds");
-                bounds_label(ui, object.local_bounds(), &mut None);
-                ui.end_row();
-
                 ui.label("Self Bounds");
                 bounds_label(ui, object.self_bounds(), &mut None);
                 ui.end_row();
@@ -1155,20 +1211,54 @@ impl DisplayObjectWindow {
                     ui.label("None");
                 }
                 ui.end_row();
+            });
 
-                let matrix = *object.base().matrix();
-                ui.label("Local Position");
+        self.show_matrix_properties(
+            ui,
+            "World Matrix",
+            object,
+            &object.local_to_global_matrix(),
+            true,
+        );
+        self.show_matrix_properties(ui, "Local Matrix", object, object.base().matrix(), false);
+    }
+
+    fn show_matrix_properties(
+        &mut self,
+        ui: &mut Ui,
+        name: &str,
+        object: DisplayObject<'_>,
+        matrix: &ruffle_render::matrix::Matrix,
+        hoverable_bounds: bool,
+    ) {
+        ui.collapsing(name, |ui| {
+            Grid::new(ui.id().with(name)).num_columns(2).show(ui, |ui| {
+                ui.label("Bounds");
+                let no_hover = &mut None;
+                bounds_label(
+                    ui,
+                    object.bounds_with_transform(matrix),
+                    if hoverable_bounds {
+                        &mut self.hovered_bounds
+                    } else {
+                        no_hover
+                    },
+                );
+                ui.end_row();
+
+                ui.label("Position");
                 ui.label(format!("{:.2}, {:.2}", matrix.tx, matrix.ty));
                 ui.end_row();
 
-                ui.label("Local Rotation");
+                ui.label("Rotation");
                 ui.label(format!("{}, {}", matrix.b, matrix.c));
                 ui.end_row();
 
-                ui.label("Local Scale");
+                ui.label("Scale");
                 ui.label(format!("{}, {}", matrix.a, matrix.d));
                 ui.end_row();
             });
+        });
     }
 
     pub fn show_children<'gc>(
@@ -1236,7 +1326,14 @@ impl DisplayObjectWindow {
 }
 
 fn matches_search(object: DisplayObject, search: &WStr) -> bool {
-    if object.name().to_ascii_lowercase().contains(search) {
+    if search.is_empty() {
+        return true;
+    }
+
+    if object
+        .name()
+        .is_some_and(|n| n.to_ascii_lowercase().contains(search))
+    {
         return true;
     }
 
@@ -1313,10 +1410,10 @@ fn summary_name(object: DisplayObject) -> Cow<'static, str> {
     let do_type = display_object_type(object);
     let name = object.name();
 
-    if name.is_empty() {
-        Cow::Borrowed(do_type)
-    } else {
+    if let Some(name) = name {
         Cow::Owned(format!("{do_type} \"{name}\""))
+    } else {
+        Cow::Borrowed(do_type)
     }
 }
 
@@ -1393,47 +1490,10 @@ fn bounds_label(ui: &mut Ui, bounds: Rectangle<Twips>, hover: &mut Option<Rectan
     }
 }
 
-fn show_text_format(ui: &mut Ui, tf: &TextFormat) {
+fn show_text_format_hover(ui: &mut Ui, tf: &TextFormat) {
     ui.weak("(hover)").on_hover_ui(|ui| {
         ui.style_mut().interaction.selectable_labels = true;
-        Grid::new(ui.id().with("text_format_table"))
-            .num_columns(2)
-            .striped(true)
-            .show(ui, |ui| {
-                for (key, value) in [
-                    ("Font Face", tf.font.as_ref().map(|v| v.to_string())),
-                    ("Font Size", tf.size.map(|v| v.to_string())),
-                    ("Color", tf.color.map(|v| format!("{v:?}"))),
-                    ("Align", tf.align.map(|v| format!("{v:?}"))),
-                    ("Bold?", tf.bold.map(|v| v.to_string())),
-                    ("Italic?", tf.italic.map(|v| v.to_string())),
-                    ("Underline?", tf.underline.map(|v| v.to_string())),
-                    ("Left Margin", tf.left_margin.map(|v| v.to_string())),
-                    ("Right Margin", tf.right_margin.map(|v| v.to_string())),
-                    ("Indent", tf.indent.map(|v| v.to_string())),
-                    ("Block Indent", tf.block_indent.map(|v| v.to_string())),
-                    ("Kerning?", tf.kerning.map(|v| v.to_string())),
-                    ("Leading", tf.leading.map(|v| v.to_string())),
-                    ("Letter Spacing", tf.letter_spacing.map(|v| v.to_string())),
-                    ("Tab Stops", tf.tab_stops.as_ref().map(|v| format!("{v:?}"))),
-                    ("Bullet?", tf.bullet.map(|v| v.to_string())),
-                    ("URL", tf.url.as_ref().map(|v| v.to_string())),
-                    ("Target", tf.target.as_ref().map(|v| v.to_string())),
-                    ("Display", tf.display.map(|v| format!("{v:?}"))),
-                ] {
-                    ui.label(key);
-                    if let Some(value) = value {
-                        if !value.is_empty() {
-                            ui.label(value);
-                        } else {
-                            ui.weak("Empty");
-                        }
-                    } else {
-                        ui.weak("None");
-                    }
-                    ui.end_row();
-                }
-            });
+        show_text_format(ui, tf, false);
     });
 }
 

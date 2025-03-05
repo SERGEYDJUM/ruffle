@@ -1,6 +1,7 @@
 package flash.text.engine {
     import __ruffle__.stub_method;
 
+    [API("662")]
     public final class TextBlock {
         public var userData;
 
@@ -12,10 +13,15 @@ package flash.text.engine {
         private var _lineRotation:String;
         private var _tabStops:Vector.<TabStop>;
         private var _textJustifier:TextJustifier;
+
+        [Ruffle(NativeAccessible)]
         private var _content:ContentElement;
 
-        internal var _textLineCreationResult:String = null;
-        internal var _firstLine:TextLine = null;
+        [Ruffle(NativeAccessible)]
+        private var _textLineCreationResult:String = null;
+
+        [Ruffle(NativeAccessible)]
+        private var _firstLine:TextLine = null;
 
 
         public function TextBlock(content:ContentElement = null,
@@ -162,7 +168,7 @@ package flash.text.engine {
         public function get lastLine():TextLine {
             return this._firstLine;
         }
-        
+
         public function releaseLines(start:TextLine, end:TextLine):void {
             if (start != end || end != this._firstLine) {
                 stub_method("flash.text.engine.TextBlock", "releaseLines", "with start != end or multiple lines");

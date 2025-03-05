@@ -1,14 +1,15 @@
 //! `Date` class
 
 use crate::avm2::activation::Activation;
-pub use crate::avm2::object::date_allocator;
-use crate::avm2::object::{DateObject, Object, TObject};
+use crate::avm2::object::{DateObject, TObject};
 use crate::avm2::value::Value;
 use crate::avm2::Error;
 use crate::locale::{get_current_date_time, get_timezone};
 use crate::string::{utils as string_utils, AvmString, WStr};
 use chrono::{DateTime, Datelike, Duration, FixedOffset, LocalResult, TimeZone, Timelike, Utc};
 use num_traits::ToPrimitive;
+
+pub use crate::avm2::object::date_allocator;
 
 struct DateAdjustment<'builder, 'activation_a: 'builder, 'gc: 'activation_a, T: TimeZone + 'builder>
 {
@@ -191,9 +192,11 @@ fn get_arguments_array<'gc>(args: &[Value<'gc>]) -> Vec<Value<'gc>> {
 /// Implements `Date`'s instance constructor.
 pub fn init<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
     let arguments = get_arguments_array(args);
 
@@ -242,33 +245,37 @@ pub fn init<'gc>(
 
 pub fn call_handler<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    _this: Object<'gc>,
+    _this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
-    Ok(activation
-        .avm2()
-        .classes()
-        .date
-        .construct(activation, &[])?
-        .into())
+    activation.avm2().classes().date.construct(activation, &[])
 }
 
 /// Implements `getTime` method.
 pub fn get_time<'gc>(
-    activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    _activation: &mut Activation<'_, 'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
-    this.value_of(activation.strings())
+
+    if let Some(date) = this.date_time() {
+        Ok((date.timestamp_millis() as f64).into())
+    } else {
+        Ok(f64::NAN.into())
+    }
 }
 
 /// Implements `setTime` method.
 pub fn set_time<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
 
     let new_time = args
@@ -291,9 +298,11 @@ pub fn set_time<'gc>(
 /// Implements the `getMilliseconds` method.
 pub fn get_milliseconds<'gc>(
     _activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
 
     if let Some(date) = this
@@ -309,9 +318,11 @@ pub fn get_milliseconds<'gc>(
 /// Implements the `setMilliseconds` method.
 pub fn _set_milliseconds<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
     let args = get_arguments_array(args);
 
@@ -324,9 +335,11 @@ pub fn _set_milliseconds<'gc>(
 /// Implements the `getSeconds` method.
 pub fn get_seconds<'gc>(
     _activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
 
     if let Some(date) = this
@@ -342,9 +355,11 @@ pub fn get_seconds<'gc>(
 /// Implements `setSeconds` method.
 pub fn _set_seconds<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
     let args = get_arguments_array(args);
 
@@ -358,9 +373,11 @@ pub fn _set_seconds<'gc>(
 /// Implements `getMinutes` method.
 pub fn get_minutes<'gc>(
     _activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
 
     if let Some(date) = this
@@ -376,9 +393,11 @@ pub fn get_minutes<'gc>(
 /// Implements the `setMinutes` method.
 pub fn _set_minutes<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
     let args = get_arguments_array(args);
 
@@ -393,9 +412,11 @@ pub fn _set_minutes<'gc>(
 /// Implements the `getHours` method.
 pub fn get_hours<'gc>(
     _activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
 
     if let Some(date) = this
@@ -411,9 +432,11 @@ pub fn get_hours<'gc>(
 /// Implements `setHours` method.
 pub fn _set_hours<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
     let args = get_arguments_array(args);
 
@@ -429,9 +452,11 @@ pub fn _set_hours<'gc>(
 /// Implements `getDate` method.
 pub fn get_date<'gc>(
     _activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
 
     if let Some(date) = this
@@ -447,9 +472,11 @@ pub fn get_date<'gc>(
 /// Implements `setDate` method.
 pub fn _set_date<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
     let args = get_arguments_array(args);
 
@@ -462,9 +489,11 @@ pub fn _set_date<'gc>(
 /// Implements the `getMonth` method.
 pub fn get_month<'gc>(
     _activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
 
     if let Some(date) = this
@@ -480,9 +509,11 @@ pub fn get_month<'gc>(
 /// Implements the `setMonth` method.
 pub fn _set_month<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
     let args = get_arguments_array(args);
 
@@ -496,9 +527,11 @@ pub fn _set_month<'gc>(
 /// Implements the `getFullYear` method.
 pub fn get_full_year<'gc>(
     _activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
 
     if let Some(date) = this
@@ -514,9 +547,11 @@ pub fn get_full_year<'gc>(
 /// Implements the `setFullYear` method.
 pub fn _set_full_year<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
     let args = get_arguments_array(args);
 
@@ -541,9 +576,11 @@ pub fn _set_full_year<'gc>(
 /// Implements the `getDay` method.
 pub fn get_day<'gc>(
     _activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
 
     if let Some(date) = this
@@ -559,9 +596,11 @@ pub fn get_day<'gc>(
 /// Implements the `getUTCMilliseconds` method.
 pub fn get_utc_milliseconds<'gc>(
     _activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
 
     if let Some(date) = this.date_time() {
@@ -574,9 +613,11 @@ pub fn get_utc_milliseconds<'gc>(
 /// Implements the `setUTCMilliseconds` method.
 pub fn _set_utc_milliseconds<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
     let args = get_arguments_array(args);
 
@@ -589,9 +630,11 @@ pub fn _set_utc_milliseconds<'gc>(
 /// Implements the `getUTCSeconds` method.
 pub fn get_utc_seconds<'gc>(
     _activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
 
     if let Some(date) = this.date_time() {
@@ -604,9 +647,11 @@ pub fn get_utc_seconds<'gc>(
 /// Implements the `setUTCSeconds` method.
 pub fn _set_utc_seconds<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
     let args = get_arguments_array(args);
 
@@ -620,9 +665,11 @@ pub fn _set_utc_seconds<'gc>(
 /// Implements the `getUTCMinutes` method.
 pub fn get_utc_minutes<'gc>(
     _activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
 
     if let Some(date) = this.date_time() {
@@ -635,9 +682,11 @@ pub fn get_utc_minutes<'gc>(
 /// Implements the `setUTCMinutes` method.
 pub fn _set_utc_minutes<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
     let args = get_arguments_array(args);
 
@@ -652,9 +701,11 @@ pub fn _set_utc_minutes<'gc>(
 /// Implements the `getUTCHours` method.
 pub fn get_utc_hours<'gc>(
     _activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
 
     if let Some(date) = this.date_time() {
@@ -667,9 +718,11 @@ pub fn get_utc_hours<'gc>(
 /// Implements the `setUTCHours` method.
 pub fn _set_utc_hours<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
     let args = get_arguments_array(args);
 
@@ -685,9 +738,11 @@ pub fn _set_utc_hours<'gc>(
 /// Implements the `getUTCDate` method.
 pub fn get_utc_date<'gc>(
     _activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
 
     if let Some(date) = this.date_time() {
@@ -700,9 +755,11 @@ pub fn get_utc_date<'gc>(
 /// Implements the `setUTCDate` method.
 pub fn _set_utc_date<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
     let args = get_arguments_array(args);
 
@@ -715,9 +772,11 @@ pub fn _set_utc_date<'gc>(
 /// Implements the `getUTCMonth` method.
 pub fn get_utc_month<'gc>(
     _activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
 
     if let Some(date) = this.date_time() {
@@ -730,9 +789,11 @@ pub fn get_utc_month<'gc>(
 /// Implements the `setUTCMonth` method.
 pub fn _set_utc_month<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
     let args = get_arguments_array(args);
 
@@ -746,9 +807,11 @@ pub fn _set_utc_month<'gc>(
 /// Implements the `getUTCFullYear` method.
 pub fn get_utc_full_year<'gc>(
     _activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
 
     if let Some(date) = this.date_time() {
@@ -761,9 +824,11 @@ pub fn get_utc_full_year<'gc>(
 /// Implements the `setUTCFullYear` method.
 pub fn _set_utc_full_year<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
     let args = get_arguments_array(args);
 
@@ -785,9 +850,11 @@ pub fn _set_utc_full_year<'gc>(
 /// Implements the `getUTCDay` method.
 pub fn get_utc_day<'gc>(
     _activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
 
     if let Some(date) = this.date_time() {
@@ -800,9 +867,11 @@ pub fn get_utc_day<'gc>(
 /// Implements the `getTimezoneOffset` method.
 pub fn get_timezone_offset<'gc>(
     _activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
 
     if let Some(date) = this
@@ -819,7 +888,7 @@ pub fn get_timezone_offset<'gc>(
 /// Implements the `UTC` class method.
 pub fn utc<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    _this: Object<'gc>,
+    _this: Value<'gc>,
     args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
     let date = DateAdjustment::new(activation, &Utc)
@@ -848,9 +917,11 @@ pub fn utc<'gc>(
 /// Implements the `toString` method.
 pub fn to_string<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
 
     if let Some(date) = this
@@ -858,40 +929,44 @@ pub fn to_string<'gc>(
         .map(|date| date.with_timezone(&get_timezone()))
     {
         Ok(AvmString::new_utf8(
-            activation.context.gc_context,
+            activation.gc(),
             date.format("%a %b %-d %T GMT%z %-Y").to_string(),
         )
         .into())
     } else {
-        Ok("Invalid Date".into())
+        Ok(AvmString::new_utf8(activation.gc(), "Invalid Date").into())
     }
 }
 
 /// Implements the `toUTCString` method.
 pub fn to_utc_string<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
 
     if let Some(date) = this.date_time() {
         Ok(AvmString::new_utf8(
-            activation.context.gc_context,
+            activation.gc(),
             date.format("%a %b %-d %T %-Y UTC").to_string(),
         )
         .into())
     } else {
-        Ok("Invalid Date".into())
+        Ok(AvmString::new_utf8(activation.gc(), "Invalid Date").into())
     }
 }
 
 /// Implements the `toLocaleString` method.
 pub fn to_locale_string<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
 
     if let Some(date) = this
@@ -899,78 +974,72 @@ pub fn to_locale_string<'gc>(
         .map(|date| date.with_timezone(&get_timezone()))
     {
         Ok(AvmString::new_utf8(
-            activation.context.gc_context,
+            activation.gc(),
             date.format("%a %b %-d %-Y %T %p").to_string(),
         )
         .into())
     } else {
-        Ok("Invalid Date".into())
+        Ok(AvmString::new_utf8(activation.gc(), "Invalid Date").into())
     }
 }
 
 /// Implements the `toTimeString` method.
 pub fn to_time_string<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
 
     if let Some(date) = this
         .date_time()
         .map(|date| date.with_timezone(&get_timezone()))
     {
-        Ok(AvmString::new_utf8(
-            activation.context.gc_context,
-            date.format("%T GMT%z").to_string(),
-        )
-        .into())
+        Ok(AvmString::new_utf8(activation.gc(), date.format("%T GMT%z").to_string()).into())
     } else {
-        Ok("Invalid Date".into())
+        Ok(AvmString::new_utf8(activation.gc(), "Invalid Date").into())
     }
 }
 
 /// Implements the `toLocaleTimeString` method.
 pub fn to_locale_time_string<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
 
     if let Some(date) = this
         .date_time()
         .map(|date| date.with_timezone(&get_timezone()))
     {
-        Ok(AvmString::new_utf8(
-            activation.context.gc_context,
-            date.format("%T %p").to_string(),
-        )
-        .into())
+        Ok(AvmString::new_utf8(activation.gc(), date.format("%T %p").to_string()).into())
     } else {
-        Ok("Invalid Date".into())
+        Ok(AvmString::new_utf8(activation.gc(), "Invalid Date").into())
     }
 }
 
 /// Implements the `toDateString` & `toLocaleDateString` method.
 pub fn to_date_string<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this.as_date_object().unwrap();
 
     if let Some(date) = this
         .date_time()
         .map(|date| date.with_timezone(&get_timezone()))
     {
-        Ok(AvmString::new_utf8(
-            activation.context.gc_context,
-            date.format("%a %b %-d %-Y").to_string(),
-        )
-        .into())
+        Ok(AvmString::new_utf8(activation.gc(), date.format("%a %b %-d %-Y").to_string()).into())
     } else {
-        Ok("Invalid Date".into())
+        Ok(AvmString::new_utf8(activation.gc(), "Invalid Date").into())
     }
 }
 
@@ -1188,7 +1257,7 @@ pub fn parse_full_date<'gc>(
 #[allow(clippy::question_mark)]
 pub fn parse<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    _this: Object<'gc>,
+    _this: Value<'gc>,
     args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
     let date_str = args

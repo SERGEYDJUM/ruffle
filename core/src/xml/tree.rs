@@ -9,6 +9,7 @@ use gc_arena::{Collect, GcCell, Mutation};
 use quick_xml::escape::escape;
 use quick_xml::events::BytesStart;
 use regress::Regex;
+use ruffle_macros::istr;
 use std::fmt;
 use std::sync::OnceLock;
 
@@ -65,7 +66,7 @@ impl<'gc> XmlNode<'gc> {
                 next_sibling: None,
                 node_type,
                 node_value,
-                attributes: ScriptObject::new(mc, None),
+                attributes: ScriptObject::new_without_proto(mc),
                 cached_child_nodes: None,
                 children: Vec::new(),
             },
@@ -82,33 +83,25 @@ impl<'gc> XmlNode<'gc> {
         id_map: ScriptObject<'gc>,
         decoder: quick_xml::Decoder,
     ) -> Result<Self, quick_xml::Error> {
-        let name = AvmString::new_utf8_bytes(activation.context.gc_context, bs.name().into_inner());
-        let mut node = Self::new(activation.context.gc_context, ELEMENT_NODE, Some(name));
+        let name = AvmString::new_utf8_bytes(activation.gc(), bs.name().into_inner());
+        let mut node = Self::new(activation.gc(), ELEMENT_NODE, Some(name));
 
         // Reverse attributes so they appear in the `PropertyMap` in their definition order.
         let attributes: Result<Vec<_>, _> = bs.attributes().collect();
         let attributes = attributes?;
         for attribute in attributes.iter().rev() {
-            let key = AvmString::new_utf8_bytes(
-                activation.context.gc_context,
-                attribute.key.into_inner(),
-            );
+            let key = AvmString::new_utf8_bytes(activation.gc(), attribute.key.into_inner());
             let value_str = custom_unescape(&attribute.value, decoder)?;
-            let value =
-                AvmString::new_utf8_bytes(activation.context.gc_context, value_str.as_bytes());
+            let value = AvmString::new_utf8_bytes(activation.gc(), value_str.as_bytes());
 
             // Insert an attribute.
-            node.attributes().define_value(
-                activation.context.gc_context,
-                key,
-                value.into(),
-                Attribute::empty(),
-            );
+            node.attributes()
+                .define_value(activation.gc(), key, value.into(), Attribute::empty());
 
             // Update the ID map.
             if attribute.key.into_inner() == b"id" {
                 id_map.define_value(
-                    activation.context.gc_context,
+                    activation.gc(),
                     value,
                     node.script_object(activation).into(),
                     Attribute::empty(),
@@ -362,12 +355,12 @@ impl<'gc> XmlNode<'gc> {
             None => {
                 let xml_node = activation.context.avm1.prototypes().xml_node_constructor;
                 let prototype = xml_node
-                    .get("prototype", activation)
+                    .get(istr!("prototype"), activation)
                     .map(|p| p.coerce_to_object(activation))
                     .ok();
-                let object = ScriptObject::new(activation.context.gc_context, prototype);
-                self.introduce_script_object(activation.context.gc_context, object.into());
-                object.set_native(activation.context.gc_context, NativeObject::XmlNode(*self));
+                let object = ScriptObject::new(&activation.context.strings, prototype);
+                self.introduce_script_object(activation.gc(), object.into());
+                object.set_native(activation.gc(), NativeObject::XmlNode(*self));
                 object.into()
             }
         }
@@ -388,9 +381,7 @@ impl<'gc> XmlNode<'gc> {
             Ok(array)
         } else {
             let array = ArrayObject::empty(activation);
-            self.0
-                .write(activation.context.gc_context)
-                .cached_child_nodes = Some(array);
+            self.0.write(activation.gc()).cached_child_nodes = Some(array);
             self.refresh_cached_child_nodes(activation)?;
             Ok(array)
         }
@@ -416,7 +407,7 @@ impl<'gc> XmlNode<'gc> {
     ///
     /// If the `deep` flag is set true, then the entire node tree will be cloned.
     pub fn duplicate(self, gc_context: &Mutation<'gc>, deep: bool) -> Self {
-        let attributes = ScriptObject::new(gc_context, None);
+        let attributes = ScriptObject::new_without_proto(gc_context);
         for (key, value) in self.attributes().own_properties() {
             attributes.define_value(gc_context, key, value, Attribute::empty());
         }
@@ -491,7 +482,7 @@ impl<'gc> XmlNode<'gc> {
                 for (key, value) in self.attributes().own_properties() {
                     let value = value.coerce_to_string(activation)?;
                     let value = value.to_utf8_lossy();
-                    let value = escape(&value);
+                    let value = escape(&*value);
 
                     result.push_byte(b' ');
                     result.push_str(&key);
@@ -519,7 +510,7 @@ impl<'gc> XmlNode<'gc> {
         } else {
             let value = self.0.read().node_value.unwrap();
             let value = value.to_utf8_lossy();
-            let value = escape(&value);
+            let value = escape(&*value);
             result.push_utf8(&value);
         }
 

@@ -6,7 +6,7 @@ use crate::avm2::parameters::ParametersExt;
 use crate::net_connection::NetConnections;
 use crate::string::AvmString;
 use crate::{
-    avm2::{Activation, Error, Object, Value},
+    avm2::{Activation, Error, Value},
     avm2_stub_method,
 };
 use flash_lso::packet::Header;
@@ -19,9 +19,11 @@ use std::rc::Rc;
 
 pub fn connect<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let connection = this
         .as_net_connection()
         .expect("Must be NetConnection object");
@@ -51,9 +53,11 @@ pub fn connect<'gc>(
 
 pub fn close<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let connection = this
         .as_net_connection()
         .expect("Must be NetConnection object");
@@ -66,9 +70,11 @@ pub fn close<'gc>(
 
 pub fn get_connected<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this
         .as_net_connection()
         .expect("Must be NetConnection object");
@@ -86,9 +92,11 @@ pub fn get_connected<'gc>(
 
 pub fn get_connected_proxy_type<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this
         .as_net_connection()
         .expect("Must be NetConnection object");
@@ -99,7 +107,7 @@ pub fn get_connected_proxy_type<'gc>(
             .net_connections
             .get_connected_proxy_type(handle)
     }) {
-        return Ok(result.into());
+        return Ok(AvmString::new_utf8(activation.gc(), result).into());
     }
 
     Err(make_error_2126(activation))
@@ -107,9 +115,11 @@ pub fn get_connected_proxy_type<'gc>(
 
 pub fn get_far_id<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this
         .as_net_connection()
         .expect("Must be NetConnection object");
@@ -118,7 +128,7 @@ pub fn get_far_id<'gc>(
         .handle()
         .and_then(|handle| activation.context.net_connections.get_far_id(handle))
     {
-        return Ok(result.into());
+        return Ok(AvmString::new_utf8(activation.gc(), result).into());
     }
 
     Err(make_error_2126(activation))
@@ -126,9 +136,11 @@ pub fn get_far_id<'gc>(
 
 pub fn get_far_nonce<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this
         .as_net_connection()
         .expect("Must be NetConnection object");
@@ -137,7 +149,7 @@ pub fn get_far_nonce<'gc>(
         .handle()
         .and_then(|handle| activation.context.net_connections.get_far_nonce(handle))
     {
-        return Ok(result.into());
+        return Ok(AvmString::new_utf8(activation.gc(), result).into());
     }
 
     Err(make_error_2126(activation))
@@ -145,9 +157,11 @@ pub fn get_far_nonce<'gc>(
 
 pub fn get_near_id<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this
         .as_net_connection()
         .expect("Must be NetConnection object");
@@ -156,7 +170,7 @@ pub fn get_near_id<'gc>(
         .handle()
         .and_then(|handle| activation.context.net_connections.get_near_id(handle))
     {
-        return Ok(result.into());
+        return Ok(AvmString::new_utf8(activation.gc(), result).into());
     }
 
     Err(make_error_2126(activation))
@@ -164,9 +178,11 @@ pub fn get_near_id<'gc>(
 
 pub fn get_near_nonce<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this
         .as_net_connection()
         .expect("Must be NetConnection object");
@@ -175,7 +191,7 @@ pub fn get_near_nonce<'gc>(
         .handle()
         .and_then(|handle| activation.context.net_connections.get_near_nonce(handle))
     {
-        return Ok(result.into());
+        return Ok(AvmString::new_utf8(activation.gc(), result).into());
     }
 
     Err(make_error_2126(activation))
@@ -183,9 +199,11 @@ pub fn get_near_nonce<'gc>(
 
 pub fn get_protocol<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this
         .as_net_connection()
         .expect("Must be NetConnection object");
@@ -194,7 +212,7 @@ pub fn get_protocol<'gc>(
         .handle()
         .and_then(|handle| activation.context.net_connections.get_protocol(handle))
     {
-        return Ok(result.into());
+        return Ok(AvmString::new_utf8(activation.gc(), result).into());
     }
 
     Err(make_error_2126(activation))
@@ -202,9 +220,11 @@ pub fn get_protocol<'gc>(
 
 pub fn get_uri<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this
         .as_net_connection()
         .expect("Must be NetConnection object");
@@ -213,7 +233,7 @@ pub fn get_uri<'gc>(
         .handle()
         .and_then(|handle| activation.context.net_connections.get_uri(handle))
     {
-        return Ok(AvmString::new_utf8(activation.context.gc_context, result).into());
+        return Ok(AvmString::new_utf8(activation.gc(), result).into());
     }
 
     Ok(Value::Null)
@@ -221,9 +241,11 @@ pub fn get_uri<'gc>(
 
 pub fn get_using_tls<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     _args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let this = this
         .as_net_connection()
         .expect("Must be NetConnection object");
@@ -240,9 +262,11 @@ pub fn get_using_tls<'gc>(
 
 pub fn call<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let connection = this
         .as_net_connection()
         .expect("Must be NetConnection object");
@@ -287,9 +311,11 @@ pub fn call<'gc>(
 
 pub fn add_header<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let connection = this
         .as_net_connection()
         .expect("Must be NetConnection object");

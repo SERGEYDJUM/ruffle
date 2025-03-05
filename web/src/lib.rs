@@ -14,11 +14,11 @@ mod zip;
 
 use crate::builder::RuffleInstanceBuilder;
 use external_interface::{external_to_js_value, js_to_external_value};
-use input::{web_key_to_codepoint, web_to_ruffle_key_code, web_to_ruffle_text_control};
+use input::{web_input_to_ruffle_key_descriptor, web_to_ruffle_text_control};
 use js_sys::{Error as JsError, Uint8Array};
 use ruffle_core::context::UpdateContext;
 use ruffle_core::context_menu::ContextMenuCallback;
-use ruffle_core::events::{MouseButton, MouseWheelDelta, TextControlCode};
+use ruffle_core::events::{GamepadButton, MouseButton, MouseWheelDelta, TextControlCode};
 use ruffle_core::tag_utils::SwfMovie;
 use ruffle_core::{Player, PlayerEvent, StaticCallstack, ViewportDimensions};
 use ruffle_web_common::JsResult;
@@ -38,8 +38,8 @@ use wasm_bindgen::convert::FromWasmAbi;
 use wasm_bindgen::prelude::*;
 use web_sys::{
     AddEventListenerOptions, ClipboardEvent, Element, Event, EventTarget, FocusEvent,
-    HtmlCanvasElement, HtmlElement, KeyboardEvent, Node, PointerEvent, ShadowRoot, WheelEvent,
-    Window,
+    Gamepad as WebGamepad, GamepadButton as WebGamepadButton, HtmlCanvasElement, HtmlElement,
+    KeyboardEvent, Node, PointerEvent, ShadowRoot, WheelEvent, Window,
 };
 
 static RUFFLE_GLOBAL_PANIC: Once = Once::new();
@@ -140,6 +140,7 @@ struct RuffleInstance {
     has_focus: bool,
     trace_observer: Rc<RefCell<JsValue>>,
     log_subscriber: Arc<Layered<WASMLayer, Registry>>,
+    pressed_buttons: Vec<GamepadButton>,
 }
 
 #[wasm_bindgen(raw_module = "./internal/player/inner")]
@@ -153,8 +154,9 @@ extern "C" {
     #[wasm_bindgen(method, js_name = "getObjectId")]
     fn get_object_id(this: &JavascriptPlayer) -> Option<String>;
 
-    #[wasm_bindgen(method, catch, js_name = "onFSCommand")]
-    fn on_fs_command(this: &JavascriptPlayer, command: &str, args: &str) -> Result<bool, JsValue>;
+    #[wasm_bindgen(method, catch, js_name = "callFSCommand")]
+    fn call_fs_command(this: &JavascriptPlayer, command: &str, args: &str)
+        -> Result<bool, JsValue>;
 
     #[wasm_bindgen(method)]
     fn panic(this: &JavascriptPlayer, error: &JsError);
@@ -507,6 +509,7 @@ impl RuffleHandle {
             has_focus: false,
             trace_observer: player.trace_observer,
             log_subscriber,
+            pressed_buttons: vec![],
         };
 
         // Prevent touch-scrolling on canvas.
@@ -596,15 +599,16 @@ impl RuffleHandle {
                                 .set_pointer_capture(js_event.pointer_id());
                         }
                         let device_pixel_ratio = instance.device_pixel_ratio;
+                        let button = match js_event.button() {
+                            0 => MouseButton::Left,
+                            1 => MouseButton::Middle,
+                            2 => MouseButton::Right,
+                            _ => MouseButton::Unknown,
+                        };
                         let event = PlayerEvent::MouseDown {
                             x: f64::from(js_event.offset_x()) * device_pixel_ratio,
                             y: f64::from(js_event.offset_y()) * device_pixel_ratio,
-                            button: match js_event.button() {
-                                0 => MouseButton::Left,
-                                1 => MouseButton::Middle,
-                                2 => MouseButton::Right,
-                                _ => MouseButton::Unknown,
-                            },
+                            button,
                             // TODO The index should be provided by the browser, not calculated.
                             index: None,
                         };
@@ -612,15 +616,7 @@ impl RuffleHandle {
                             .with_core_mut(|core| core.handle_event(event))
                             .unwrap_or_default();
 
-                        if handled
-                            && matches!(
-                                event,
-                                PlayerEvent::MouseDown {
-                                    button: MouseButton::Right,
-                                    ..
-                                }
-                            )
-                        {
+                        if handled && matches!(button, MouseButton::Right) {
                             js_player_callback.suppress_context_menu();
                         }
 
@@ -698,10 +694,9 @@ impl RuffleHandle {
                         if instance.has_focus {
                             let mut paste_event = false;
                             let _ = instance.with_core_mut(|core| {
-                                let key_code = web_to_ruffle_key_code(&js_event.code());
-                                let key_char = web_key_to_codepoint(&js_event.key());
+                                let key = web_input_to_ruffle_key_descriptor(&js_event);
                                 let is_ctrl_cmd = js_event.ctrl_key() || js_event.meta_key();
-                                core.handle_event(PlayerEvent::KeyDown { key_code, key_char });
+                                core.handle_event(PlayerEvent::KeyDown { key });
 
                                 if let Some(control_code) = web_to_ruffle_text_control(
                                     &js_event.key(),
@@ -716,7 +711,7 @@ impl RuffleHandle {
                                             code: control_code,
                                         });
                                     }
-                                } else if let Some(codepoint) = key_char {
+                                } else if let Some(codepoint) = key.logical_key.character() {
                                     core.handle_event(PlayerEvent::TextInput { codepoint });
                                 }
                             });
@@ -767,9 +762,8 @@ impl RuffleHandle {
                     let _ = ruffle.with_instance(|instance| {
                         if instance.has_focus {
                             let _ = instance.with_core_mut(|core| {
-                                let key_code = web_to_ruffle_key_code(&js_event.code());
-                                let key_char = web_key_to_codepoint(&js_event.key());
-                                core.handle_event(PlayerEvent::KeyUp { key_code, key_char });
+                                let key = web_input_to_ruffle_key_descriptor(&js_event);
+                                core.handle_event(PlayerEvent::KeyUp { key });
                             });
                             js_event.prevent_default();
                         }
@@ -1014,6 +1008,7 @@ impl RuffleHandle {
     fn tick(&mut self, timestamp: f64) {
         let mut dt = 0.0;
         let mut new_dimensions = None;
+        let mut gamepad_button_events = Vec::new();
         let _ = self.with_instance_mut(|instance| {
             // Check for canvas resize.
             let canvas_width = instance.canvas.client_width();
@@ -1042,6 +1037,60 @@ impl RuffleHandle {
                 ));
             }
 
+            if let Ok(gamepads) = instance.window.navigator().get_gamepads() {
+                if let Some(gamepad) = gamepads
+                    .into_iter()
+                    .next()
+                    .and_then(|gamepad| gamepad.dyn_into::<WebGamepad>().ok())
+                {
+                    let mut pressed_buttons = Vec::new();
+
+                    let buttons = gamepad.buttons();
+                    for (index, button) in buttons.into_iter().enumerate() {
+                        let Ok(button) = button.dyn_into::<WebGamepadButton>() else {
+                            continue;
+                        };
+
+                        if !button.pressed() {
+                            continue;
+                        }
+
+                        // See https://w3c.github.io/gamepad/#remapping
+                        let gamepad_button = match index {
+                            0 => GamepadButton::South,
+                            1 => GamepadButton::East,
+                            2 => GamepadButton::West,
+                            3 => GamepadButton::North,
+                            12 => GamepadButton::DPadUp,
+                            13 => GamepadButton::DPadDown,
+                            14 => GamepadButton::DPadLeft,
+                            15 => GamepadButton::DPadRight,
+                            _ => continue,
+                        };
+
+                        pressed_buttons.push(gamepad_button);
+                    }
+
+                    if pressed_buttons != instance.pressed_buttons {
+                        for button in pressed_buttons.iter() {
+                            if !instance.pressed_buttons.contains(button) {
+                                gamepad_button_events
+                                    .push(PlayerEvent::GamepadButtonDown { button: *button });
+                            }
+                        }
+
+                        for button in instance.pressed_buttons.iter() {
+                            if !pressed_buttons.contains(button) {
+                                gamepad_button_events
+                                    .push(PlayerEvent::GamepadButtonUp { button: *button });
+                            }
+                        }
+
+                        instance.pressed_buttons = pressed_buttons;
+                    }
+                }
+            }
+
             // Request next animation frame.
             if let Some(handler) = &instance.animation_handler {
                 let id = instance
@@ -1064,6 +1113,10 @@ impl RuffleHandle {
 
         // Tick the Ruffle core.
         let _ = self.with_core_mut(|core| {
+            for event in gamepad_button_events {
+                core.handle_event(event);
+            }
+
             if let Some((ref canvas, viewport_width, viewport_height, device_pixel_ratio)) =
                 new_dimensions
             {

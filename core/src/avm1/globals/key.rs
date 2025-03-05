@@ -14,13 +14,13 @@ const OBJECT_DECLS: &[Declaration] = declare_properties! {
     "DELETEKEY" => int(KeyCode::DELETE.value() as i32; DONT_ENUM | DONT_DELETE | READ_ONLY);
     "DOWN" => int(KeyCode::DOWN.value() as i32; DONT_ENUM | DONT_DELETE | READ_ONLY);
     "END" => int(KeyCode::END.value() as i32; DONT_ENUM | DONT_DELETE | READ_ONLY);
-    "ENTER" => int(KeyCode::RETURN.value() as i32; DONT_ENUM | DONT_DELETE | READ_ONLY);
+    "ENTER" => int(KeyCode::ENTER.value() as i32; DONT_ENUM | DONT_DELETE | READ_ONLY);
     "ESCAPE" => int(KeyCode::ESCAPE.value() as i32; DONT_ENUM | DONT_DELETE | READ_ONLY);
     "HOME" => int(KeyCode::HOME.value() as i32; DONT_ENUM | DONT_DELETE | READ_ONLY);
     "INSERT" => int(KeyCode::INSERT.value() as i32; DONT_ENUM | DONT_DELETE | READ_ONLY);
     "LEFT" => int(KeyCode::LEFT.value() as i32; DONT_ENUM | DONT_DELETE | READ_ONLY);
-    "PGDN" => int(KeyCode::PG_DOWN.value() as i32; DONT_ENUM | DONT_DELETE | READ_ONLY);
-    "PGUP" => int(KeyCode::PG_UP.value() as i32; DONT_ENUM | DONT_DELETE | READ_ONLY);
+    "PGDN" => int(KeyCode::PAGE_DOWN.value() as i32; DONT_ENUM | DONT_DELETE | READ_ONLY);
+    "PGUP" => int(KeyCode::PAGE_UP.value() as i32; DONT_ENUM | DONT_DELETE | READ_ONLY);
     "RIGHT" => int(KeyCode::RIGHT.value() as i32; DONT_ENUM | DONT_DELETE | READ_ONLY);
     "SHIFT" => int(KeyCode::SHIFT.value() as i32; DONT_ENUM | DONT_DELETE | READ_ONLY);
     "SPACE" => int(KeyCode::SPACE.value() as i32; DONT_ENUM | DONT_DELETE | READ_ONLY);
@@ -88,8 +88,8 @@ pub fn create_key_object<'gc>(
     broadcaster_functions: BroadcasterFunctions<'gc>,
     array_proto: Object<'gc>,
 ) -> Object<'gc> {
-    let key = ScriptObject::new(context.gc_context, Some(proto));
-    broadcaster_functions.initialize(context.gc_context, key.into(), array_proto);
+    let key = ScriptObject::new(context, Some(proto));
+    broadcaster_functions.initialize(context, key.into(), array_proto);
     define_properties_on(OBJECT_DECLS, context, key, fn_proto);
     key.into()
 }

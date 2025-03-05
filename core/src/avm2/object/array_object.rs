@@ -21,7 +21,7 @@ pub fn array_allocator<'gc>(
     let base = ScriptObjectData::new(class);
 
     Ok(ArrayObject(Gc::new(
-        activation.context.gc_context,
+        activation.gc(),
         ArrayObjectData {
             base,
             array: RefLock::new(ArrayStorage::new(0)),
@@ -64,7 +64,7 @@ const _: () =
 
 impl<'gc> ArrayObject<'gc> {
     /// Construct an empty array.
-    pub fn empty(activation: &mut Activation<'_, 'gc>) -> Result<Object<'gc>, Error<'gc>> {
+    pub fn empty(activation: &mut Activation<'_, 'gc>) -> ArrayObject<'gc> {
         Self::from_storage(activation, ArrayStorage::new(0))
     }
 
@@ -74,22 +74,25 @@ impl<'gc> ArrayObject<'gc> {
     pub fn from_storage(
         activation: &mut Activation<'_, 'gc>,
         array: ArrayStorage<'gc>,
-    ) -> Result<Object<'gc>, Error<'gc>> {
+    ) -> ArrayObject<'gc> {
         let class = activation.avm2().classes().array;
         let base = ScriptObjectData::new(class);
 
-        let instance: Object<'gc> = ArrayObject(Gc::new(
-            activation.context.gc_context,
+        ArrayObject(Gc::new(
+            activation.gc(),
             ArrayObjectData {
                 base,
                 array: RefLock::new(array),
             },
         ))
-        .into();
+    }
 
-        class.call_super_init(instance.into(), &[], activation)?;
+    pub fn array_storage(&self) -> Ref<ArrayStorage<'gc>> {
+        self.0.array.borrow()
+    }
 
-        Ok(instance)
+    pub fn array_storage_mut(&self, mc: &Mutation<'gc>) -> RefMut<ArrayStorage<'gc>> {
+        unlock!(Gc::write(mc, self.0), ArrayObjectData, array).borrow_mut()
     }
 }
 
@@ -134,7 +137,7 @@ impl<'gc> TObject<'gc> for ArrayObject<'gc> {
         value: Value<'gc>,
         activation: &mut Activation<'_, 'gc>,
     ) -> Result<(), Error<'gc>> {
-        let mc = activation.context.gc_context;
+        let mc = activation.gc();
 
         if name.contains_public_namespace() {
             if let Some(name) = name.local_name() {
@@ -157,7 +160,7 @@ impl<'gc> TObject<'gc> for ArrayObject<'gc> {
         value: Value<'gc>,
         activation: &mut Activation<'_, 'gc>,
     ) -> Result<(), Error<'gc>> {
-        let mc = activation.context.gc_context;
+        let mc = activation.gc();
 
         if name.contains_public_namespace() {
             if let Some(name) = name.local_name() {
@@ -179,7 +182,7 @@ impl<'gc> TObject<'gc> for ArrayObject<'gc> {
         activation: &mut Activation<'_, 'gc>,
         name: &Multiname<'gc>,
     ) -> Result<bool, Error<'gc>> {
-        let mc = activation.context.gc_context;
+        let mc = activation.gc();
 
         if name.contains_public_namespace() {
             if let Some(name) = name.local_name() {
@@ -212,14 +215,14 @@ impl<'gc> TObject<'gc> for ArrayObject<'gc> {
         self,
         mut last_index: u32,
         _activation: &mut Activation<'_, 'gc>,
-    ) -> Result<Option<u32>, Error<'gc>> {
+    ) -> Result<u32, Error<'gc>> {
         let array = self.0.array.borrow();
 
         let array_length = array.length() as u32;
 
         // Array enumeration skips over holes.
         if let Some(index) = array.get_next_enumerant(last_index as usize) {
-            return Ok(Some(index as u32));
+            return Ok(index as u32);
         }
 
         last_index = std::cmp::max(last_index, array_length);
@@ -229,10 +232,12 @@ impl<'gc> TObject<'gc> for ArrayObject<'gc> {
         // After enumerating all of the 'normal' array entries,
         // we enumerate all of the local properties stored on the
         // ScriptObject.
-        if let Some(index) = self.base().get_next_enumerant(last_index - array_length) {
-            return Ok(Some(index + array_length));
+        let index = self.base().get_next_enumerant(last_index - array_length);
+        if index != 0 {
+            return Ok(index + array_length);
         }
-        Ok(None)
+
+        Ok(0)
     }
 
     fn get_enumerant_name(
@@ -245,12 +250,12 @@ impl<'gc> TObject<'gc> for ArrayObject<'gc> {
             Ok(index
                 .checked_sub(1)
                 .map(|index| index.into())
-                .unwrap_or(Value::Undefined))
+                .unwrap_or(Value::Null))
         } else {
             Ok(self
                 .base()
                 .get_enumerant_name(index - arr_len)
-                .unwrap_or(Value::Undefined))
+                .unwrap_or(Value::Null))
         }
     }
 

@@ -45,37 +45,44 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/ruffle-rs/ruffle"
 version = "0.1.0"
 
+# TODO: remove this when v25 releases with https://github.com/gfx-rs/wgpu/pull/6994
+# (or a v24.x with the backport: https://github.com/gfx-rs/wgpu/pull/7169)
+[patch.crates-io]
+wgpu = { git = "https://github.com/ruffle-rs/wgpu", tag = "v24.0.1-ruffle1" }
+naga = { git = "https://github.com/ruffle-rs/wgpu", tag = "v24.0.1-ruffle1" }
+
 [workspace.dependencies]
-tracing = "0.1.40"
-tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
-naga = { version = "23.0.0", features = ["wgsl-out"] }
-wgpu = "23.0.0"
-egui = { git = "https://github.com/emilk/egui.git", branch = "master" }
-clap = { version = "4.5.20", features = ["derive"] }
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+naga = { version = "24.0.0", features = ["wgsl-out"] }
+wgpu = "24.0.1"
+egui = "0.31.0"
+clap = { version = "4.5.31", features = ["derive"] }
 cpal = "0.15.3"
 anyhow = "1.0"
 slotmap = "1.0.7"
 async-channel = "2.3.1"
-bitflags = "2.6.0"
-bytemuck = "1.19.0"
-chrono = { version = "0.4.38", default-features = false }
+bitflags = "2.9.0"
+bytemuck = "1.22.0"
+chrono = { version = "0.4.40", default-features = false }
 enum-map = "2.7.3"
-flate2 = "1.0.34"
+flate2 = "1.1.0"
 futures = "0.3.31"
 image = { version = "0.25.5", default-features = false }
-js-sys = "0.3.72"
-web-sys = "0.3.72"
+js-sys = "0.3.77"
+web-sys = "0.3.77"
 log = "0.4"
 num-derive = "0.4.2"
 num-traits = "0.2.19"
-serde = "1.0.214"
-thiserror = "1.0"
+serde = "1.0.218"
+thiserror = "2.0.12"
 url = "2.5.2"
 # Make sure to match wasm-bindgen-cli version to this everywhere.
-wasm-bindgen = "=0.2.95"
+wasm-bindgen = "=0.2.100"
 walkdir = "2.5.0"
-tokio = "1.41.1"
-rfd = "0.15.0"
+tokio = "1.43.0"
+# Switching from the `async-std` to the `tokio` runtime, which we depend on anyway.
+rfd = { version = "0.15.2", default-features = false, features = ["tokio", "xdg-portal"] }
 
 [workspace.lints.rust]
 # Clippy nightly often adds new/buggy lints that we want to ignore.
@@ -85,7 +92,7 @@ unknown_lints = "allow"
 
 [workspace.lints.clippy]
 # LONG-TERM: These lints are unhelpful.
-manual_map = "allow"             # Less readable: Suggests `opt.map(..)` instsead of `if let Some(opt) { .. }`
+manual_map = "allow"             # Less readable: Suggests `opt.map(..)` instead of `if let Some(opt) { .. }`
 manual_range_contains = "allow"  # Less readable: Suggests `(a..b).contains(n)` instead of `n >= a && n < b`
 assigning_clones = "allow"       # Sometimes useful, but more often than not it doesn't do anything as
                                  # we overwrite an empty item. And sometimes it can even be a footgun
@@ -116,11 +123,11 @@ opt-level = 3
 [profile.dev.package.nihav_duck]
 opt-level = 3
 
-# TODO: Set rustflags here instead of in web/core/package.json, when that
+# TODO: Set rustflags here instead of in tools/build_wasm.ts, when that
 # feature becomes stable. See: https://github.com/rust-lang/cargo/issues/10271
 # Until then, these custom profiles let cargo keep the build cache alive
 # across "dual-wasm" builds, separating it for the two .wasm modules.
-[profile.web-vanilla-wasm]
+[profile.web-wasm-mvp]
 inherits = "release"
 
 [profile.web-wasm-extensions]

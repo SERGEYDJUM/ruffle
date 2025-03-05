@@ -28,7 +28,7 @@ impl ResolveBuffer {
     }
 
     #[allow(dead_code)]
-    pub fn new_manual(texture: Arc<wgpu::Texture>) -> Self {
+    pub fn new_manual(texture: wgpu::Texture) -> Self {
         Self {
             texture: PoolOrArcTexture::Manual((
                 texture.clone(),
@@ -69,7 +69,7 @@ pub struct FrameBuffer {
 /// (when doing an offscreen render to a BitmapData texture)
 pub enum PoolOrArcTexture {
     Pool(PoolEntry<(wgpu::Texture, wgpu::TextureView), AlwaysCompatible>),
-    Manual((Arc<wgpu::Texture>, wgpu::TextureView)),
+    Manual((wgpu::Texture, wgpu::TextureView)),
 }
 
 impl PoolOrArcTexture {
@@ -105,7 +105,7 @@ impl FrameBuffer {
     }
 
     #[allow(dead_code)]
-    pub fn new_manual(texture: Arc<wgpu::Texture>, size: wgpu::Extent3d) -> Self {
+    pub fn new_manual(texture: wgpu::Texture, size: wgpu::Extent3d) -> Self {
         Self {
             texture: PoolOrArcTexture::Manual((
                 texture.clone(),
@@ -419,7 +419,7 @@ impl CommandTarget {
         });
         self.ensure_cleared(encoder);
         encoder.copy_texture_to_texture(
-            wgpu::ImageCopyTextureBase {
+            wgpu::TexelCopyTextureInfo {
                 texture: self
                     .resolve_buffer
                     .as_ref()
@@ -429,7 +429,7 @@ impl CommandTarget {
                 origin: Default::default(),
                 aspect: Default::default(),
             },
-            wgpu::ImageCopyTextureBase {
+            wgpu::TexelCopyTextureInfo {
                 texture: blend_buffer.texture(),
                 mip_level: 0,
                 origin: Default::default(),

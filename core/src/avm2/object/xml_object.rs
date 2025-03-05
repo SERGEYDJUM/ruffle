@@ -17,7 +17,6 @@ use gc_arena::{lock::Lock, Collect, Gc, GcWeak, Mutation};
 use ruffle_wstr::WString;
 
 use super::xml_list_object::{E4XOrXml, XmlOrXmlListObject};
-use super::PrimitiveObject;
 
 /// A class instance allocator that allocates XML objects.
 pub fn xml_allocator<'gc>(
@@ -27,10 +26,10 @@ pub fn xml_allocator<'gc>(
     let base = ScriptObjectData::new(class);
 
     Ok(XmlObject(Gc::new(
-        activation.context.gc_context,
+        activation.gc(),
         XmlObjectData {
             base,
-            node: Lock::new(E4XNode::dummy(activation.context.gc_context)),
+            node: Lock::new(E4XNode::dummy(activation.gc())),
         },
     ))
     .into())
@@ -69,7 +68,7 @@ const _: () =
 impl<'gc> XmlObject<'gc> {
     pub fn new(node: E4XNode<'gc>, activation: &mut Activation<'_, 'gc>) -> Self {
         XmlObject(Gc::new(
-            activation.context.gc_context,
+            activation.gc(),
             XmlObjectData {
                 base: ScriptObjectData::new(activation.context.avm2.classes().xml),
                 node: Lock::new(node),
@@ -208,7 +207,7 @@ impl<'gc> XmlObject<'gc> {
         in_scope_ns: &[E4XNamespace<'gc>],
     ) -> Result<NamespaceObject<'gc>, Error<'gc>> {
         self.node()
-            .get_namespace(in_scope_ns)
+            .get_namespace(activation.strings(), in_scope_ns)
             .as_namespace_object(activation)
     }
 
@@ -357,9 +356,7 @@ impl<'gc> TObject<'gc> for XmlObject<'gc> {
     ) -> Result<Value<'gc>, Error<'gc>> {
         let this = self.as_xml_object().unwrap();
 
-        let method = self
-            .proto()
-            .expect("XMLList missing prototype")
+        let method = Value::from(self.proto().expect("XMLList missing prototype"))
             .get_property(multiname, activation)?;
 
         // If the method doesn't exist on the prototype, and we have simple content,
@@ -374,18 +371,14 @@ impl<'gc> TObject<'gc> for XmlObject<'gc> {
             let prop = self.get_property_local(multiname, activation)?;
             if let Some(list) = prop.as_object().and_then(|obj| obj.as_xml_list_object()) {
                 if list.length() == 0 && this.node().has_simple_content() {
-                    let receiver = PrimitiveObject::from_primitive(
-                        this.node().xml_to_string(activation).into(),
-                        activation,
-                    )?;
+                    let receiver = Value::String(this.node().xml_to_string(activation));
+
                     return receiver.call_property(multiname, arguments, activation);
                 }
             }
         }
 
-        return method
-            .as_callable(activation, Some(multiname), Some(self.into()), false)?
-            .call(self.into(), arguments, activation);
+        method.call(activation, self.into(), arguments)
     }
 
     fn has_own_property(self, name: &Multiname<'gc>) -> bool {
@@ -407,10 +400,10 @@ impl<'gc> TObject<'gc> for XmlObject<'gc> {
 
     fn has_own_property_string(
         self,
-        name: impl Into<AvmString<'gc>>,
+        name: AvmString<'gc>,
         activation: &mut Activation<'_, 'gc>,
     ) -> Result<bool, Error<'gc>> {
-        let multiname = string_to_multiname(activation, name.into());
+        let multiname = string_to_multiname(activation, name);
         Ok(self.has_own_property(&multiname))
     }
 
@@ -502,7 +495,7 @@ impl<'gc> TObject<'gc> for XmlObject<'gc> {
                 value.coerce_to_string(activation)?
             };
 
-            let mc = activation.context.gc_context;
+            let mc = activation.gc();
             self.delete_property_local(activation, &name)?;
             let Some(local_name) = name.local_name() else {
                 return Err(format!("Cannot set attribute {:?} without a local name", name).into());
@@ -531,9 +524,10 @@ impl<'gc> TObject<'gc> for XmlObject<'gc> {
         }
 
         // 10. Let primitiveAssign = (Type(c) ∉ {XML, XMLList}) and (n.localName is not equal to the string "*")
-        let primitive_assign = !value.as_object().map_or(false, |x| {
-            x.as_xml_list_object().is_some() || x.as_xml_object().is_some()
-        }) && !name.is_any_name();
+        let primitive_assign = !value
+            .as_object()
+            .is_some_and(|x| x.as_xml_list_object().is_some() || x.as_xml_object().is_some())
+            && !name.is_any_name();
 
         let self_node = self.node();
 
@@ -605,8 +599,8 @@ impl<'gc> TObject<'gc> for XmlObject<'gc> {
         self,
         last_index: u32,
         _activation: &mut Activation<'_, 'gc>,
-    ) -> Result<Option<u32>, Error<'gc>> {
-        Ok(Some(if last_index == 0 { 1 } else { 0 }))
+    ) -> Result<u32, Error<'gc>> {
+        Ok(if last_index == 0 { 1 } else { 0 })
     }
 
     fn get_enumerant_value(
@@ -629,7 +623,7 @@ impl<'gc> TObject<'gc> for XmlObject<'gc> {
         if index == 1 {
             Ok(0.into())
         } else {
-            Ok(Value::Undefined)
+            Ok(Value::Null)
         }
     }
 

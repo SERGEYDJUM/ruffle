@@ -1,19 +1,21 @@
-use ruffle_render::{
-    backend::{PixelBenderOutput, PixelBenderTarget},
-    bitmap::PixelRegion,
-    pixel_bender::{
-        ImageInputTexture, PixelBenderParam, PixelBenderParamQualifier, PixelBenderShaderArgument,
-        PixelBenderShaderHandle, PixelBenderType, OUT_COORD_NAME,
-    },
+use crate::avm2::bytearray::Endian;
+use crate::avm2::globals::slots::{
+    flash_display_shader as shader_slots, flash_display_shader_input as shader_input_slots,
+    flash_display_shader_job as shader_job_slots,
+    flash_display_shader_parameter as shader_parameter_slots,
 };
+use crate::avm2::parameters::ParametersExt;
+use crate::avm2::{Activation, Error, Object, TObject, Value};
+use crate::pixel_bender::PixelBenderTypeExt;
+use crate::string::AvmString;
 
-use crate::{
-    avm2::{
-        bytearray::Endian, parameters::ParametersExt, string::AvmString, Activation, Error, Object,
-        TObject, Value,
-    },
-    avm2_stub_method,
-    pixel_bender::PixelBenderTypeExt,
+use crate::avm2_stub_method;
+
+use ruffle_render::backend::{PixelBenderOutput, PixelBenderTarget};
+use ruffle_render::bitmap::PixelRegion;
+use ruffle_render::pixel_bender::{
+    ImageInputTexture, PixelBenderParam, PixelBenderParamQualifier, PixelBenderShaderArgument,
+    PixelBenderShaderHandle, PixelBenderType, OUT_COORD_NAME,
 };
 
 pub fn get_shader_args<'gc>(
@@ -29,7 +31,7 @@ pub fn get_shader_args<'gc>(
     // FIXME - determine what errors Flash Player throws here
     // instead of using `expect`
     let shader_data = shader_obj
-        .get_public_property("data", activation)?
+        .get_slot(shader_slots::_DATA)
         .as_object()
         .expect("Missing ShaderData object")
         .as_shader_data()
@@ -65,8 +67,8 @@ pub fn get_shader_args<'gc>(
                         });
                     }
                     let shader_param = shader_data
-                        .get_public_property(
-                            AvmString::new_utf8(activation.context.gc_context, name),
+                        .get_string_property_local(
+                            AvmString::new_utf8(activation.gc(), name),
                             activation,
                         )
                         .expect("Missing normal property");
@@ -75,9 +77,18 @@ pub fn get_shader_args<'gc>(
                         .as_object()
                         .expect("Shader property is not an object");
 
-                    let value = shader_param
-                        .get_public_property("value", activation)
-                        .expect("Missing value property");
+                    if !shader_param.is_of_type(
+                        activation
+                            .avm2()
+                            .classes()
+                            .shaderparameter
+                            .inner_class_definition(),
+                    ) {
+                        panic!("Expected shader parameter to be of class ShaderParameter");
+                    }
+
+                    let value = shader_param.get_slot(shader_parameter_slots::_VALUE);
+
                     let pb_val = PixelBenderType::from_avm2_value(activation, value, param_type)
                         .expect("Failed to convert AVM2 value to PixelBenderType");
 
@@ -92,46 +103,40 @@ pub fn get_shader_args<'gc>(
                     name,
                 } => {
                     let shader_input = shader_data
-                        .get_public_property(
-                            AvmString::new_utf8(activation.context.gc_context, name),
+                        .get_string_property_local(
+                            AvmString::new_utf8(activation.gc(), name),
                             activation,
                         )
                         .expect("Missing property")
                         .as_object()
                         .expect("Shader input is not an object");
 
-                    let input = shader_input
-                        .get_public_property("input", activation)
-                        .expect("Missing input property");
+                    if !shader_input.is_of_type(
+                        activation
+                            .avm2()
+                            .classes()
+                            .shaderinput
+                            .inner_class_definition(),
+                    ) {
+                        panic!("Expected shader input to be of class ShaderInput");
+                    }
 
-                    let width = shader_input
-                        .get_public_property("width", activation)
-                        .unwrap()
-                        .as_u32();
-                    let height = shader_input
-                        .get_public_property("height", activation)
-                        .unwrap()
-                        .as_u32();
+                    let input = shader_input.get_slot(shader_input_slots::_INPUT);
+
+                    let width = shader_input.get_slot(shader_input_slots::_WIDTH).as_u32();
+                    let height = shader_input.get_slot(shader_input_slots::_HEIGHT).as_u32();
 
                     let input_channels = shader_input
-                        .get_public_property("channels", activation)
-                        .unwrap()
+                        .get_slot(shader_input_slots::_CHANNELS)
                         .as_u32();
 
                     assert_eq!(*channels as u32, input_channels);
 
-                    let texture = if let Value::Null = input {
-                        None
-                    } else {
-                        let input = input
-                            .as_object()
-                            .expect("ShaderInput.input is not an object");
-
+                    let texture = if let Some(input) = input.as_object() {
                         let input_texture = if let Some(bitmap) = input.as_bitmap_data() {
-                            ImageInputTexture::Bitmap(bitmap.bitmap_handle(
-                                activation.context.gc_context,
-                                activation.context.renderer,
-                            ))
+                            ImageInputTexture::Bitmap(
+                                bitmap.bitmap_handle(activation.gc(), activation.context.renderer),
+                            )
                         } else if let Some(byte_array) = input.as_bytearray() {
                             let expected_len = (width * height * input_channels) as usize
                                 * std::mem::size_of::<f32>();
@@ -159,6 +164,9 @@ pub fn get_shader_args<'gc>(
                             panic!("Unexpected input object {input:?}");
                         };
                         Some(input_texture)
+                    } else {
+                        // Null input
+                        None
                     };
 
                     Some(PixelBenderShaderArgument::ImageInput {
@@ -177,9 +185,11 @@ pub fn get_shader_args<'gc>(
 /// Implements `ShaderJob.start`.
 pub fn start<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    this: Object<'gc>,
+    this: Value<'gc>,
     args: &[Value<'gc>],
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let this = this.as_object().unwrap();
+
     let wait_for_completion = args.get_bool(0);
     if !wait_for_completion {
         avm2_stub_method!(
@@ -190,26 +200,26 @@ pub fn start<'gc>(
         );
     }
     let shader = this
-        .get_public_property("shader", activation)?
+        .get_slot(shader_job_slots::_SHADER)
         .as_object()
         .expect("Missing Shader object");
 
     let (shader_handle, arguments) = get_shader_args(shader, activation)?;
 
     let target = this
-        .get_public_property("target", activation)?
+        .get_slot(shader_job_slots::_TARGET)
         .as_object()
         .expect("ShaderJob.target is not an object");
 
-    let output_width = this.get_public_property("width", activation)?.as_u32();
+    let output_width = this.get_slot(shader_job_slots::_WIDTH).as_u32();
 
-    let output_height = this.get_public_property("height", activation)?.as_u32();
+    let output_height = this.get_slot(shader_job_slots::_HEIGHT).as_u32();
 
     let pixel_bender_target = if let Some(bitmap) = target.as_bitmap_data() {
         let target_bitmap = bitmap.sync(activation.context.renderer);
         // Perform both a GPU->CPU and CPU->GPU sync before writing to it.
         // FIXME - are both necessary?
-        let mut target_bitmap_data = target_bitmap.write(activation.context.gc_context);
+        let mut target_bitmap_data = target_bitmap.write(activation.gc());
         target_bitmap_data.update_dirty_texture(activation.context.renderer);
 
         PixelBenderTarget::Bitmap(
@@ -236,11 +246,11 @@ pub fn start<'gc>(
                 .as_bitmap_data()
                 .unwrap()
                 .sync(activation.context.renderer);
-            let mut target_bitmap_data = target_bitmap.write(activation.context.gc_context);
+            let mut target_bitmap_data = target_bitmap.write(activation.gc());
             let width = target_bitmap_data.width();
             let height = target_bitmap_data.height();
             target_bitmap_data.set_gpu_dirty(
-                activation.context.gc_context,
+                activation.gc(),
                 sync_handle,
                 PixelRegion::for_whole_size(width, height),
             );
@@ -248,9 +258,7 @@ pub fn start<'gc>(
         PixelBenderOutput::Bytes(pixels) => {
             if let Some(mut bytearray) = target.as_bytearray_mut() {
                 bytearray.write_at(&pixels, 0).unwrap();
-            } else if let Some(mut vector) =
-                target.as_vector_storage_mut(activation.context.gc_context)
-            {
+            } else if let Some(mut vector) = target.as_vector_storage_mut(activation.gc()) {
                 let new_storage: Vec<_> = bytemuck::cast_slice::<u8, f32>(&pixels)
                     .iter()
                     .map(|p| Value::from(*p as f64))

@@ -60,11 +60,6 @@ pub enum Op<'gc> {
 
         num_args: u32,
     },
-    CallSuperVoid {
-        multiname: Gc<'gc, Multiname<'gc>>,
-
-        num_args: u32,
-    },
     CheckFilter,
     Coerce {
         class: Class<'gc>,
@@ -136,11 +131,6 @@ pub enum Op<'gc> {
     },
     GetDescendants {
         multiname: Gc<'gc, Multiname<'gc>>,
-    },
-    GetGlobalScope,
-    GetGlobalSlot {
-        // note: 0-indexed, as opposed to FP.
-        index: u32,
     },
     GetLocal {
         index: u32,
@@ -274,9 +264,6 @@ pub enum Op<'gc> {
     Not,
     Pop,
     PopScope,
-    PushByte {
-        value: i8,
-    },
     PushDouble {
         value: f64,
     },
@@ -288,7 +275,6 @@ pub enum Op<'gc> {
         #[collect(require_static)]
         value: Index<Namespace>,
     },
-    PushNaN,
     PushNull,
     PushScope,
     PushShort {
@@ -365,12 +351,10 @@ impl Op<'_> {
             Op::Bkpt
                 | Op::BkptLine { .. }
                 | Op::Timestamp
-                | Op::PushByte { .. }
                 | Op::PushDouble { .. }
                 | Op::PushFalse
                 | Op::PushInt { .. }
                 | Op::PushNamespace { .. }
-                | Op::PushNaN
                 | Op::PushNull
                 | Op::PushShort { .. }
                 | Op::PushString { .. }
@@ -381,10 +365,8 @@ impl Op<'_> {
                 | Op::Swap
                 | Op::Pop
                 | Op::TypeOf
-                | Op::GetGlobalScope
                 | Op::GetScopeObject { .. }
                 | Op::GetOuterScope { .. }
-                | Op::GetGlobalSlot { .. }
                 | Op::GetLocal { .. }
                 | Op::SetLocal { .. }
                 | Op::Kill { .. }

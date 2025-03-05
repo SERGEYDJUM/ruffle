@@ -165,29 +165,12 @@ impl<'gc> From<Gc<'gc, AvmStringRepr<'gc>>> for AvmString<'gc> {
     }
 }
 
-impl Default for AvmString<'_> {
-    fn default() -> Self {
-        Self {
-            source: Source::Static(WStr::empty()),
-        }
-    }
-}
-
 impl From<&'static str> for AvmString<'_> {
     #[inline]
     fn from(str: &'static str) -> Self {
         // TODO(moulins): actually check that `str` is valid ASCII.
         Self {
             source: Source::Static(WStr::from_units(str.as_bytes())),
-        }
-    }
-}
-
-impl From<&'static WStr> for AvmString<'_> {
-    #[inline]
-    fn from(str: &'static WStr) -> Self {
-        Self {
-            source: Source::Static(str),
         }
     }
 }

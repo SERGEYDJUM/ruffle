@@ -21,6 +21,7 @@ allow = [
     "CC0-1.0",
     "OFL-1.1",
     "LicenseRef-UFL-1.0",
+    "Ubuntu-font-1.0",
     "OpenSSL"
 ]
 
@@ -57,12 +58,19 @@ license-files = [
 multiple-versions = "warn"
 
 deny = [
-    # We are manually pinning `tracing-tracy` to match the version used by
-    # `profiling`, but this can get stale easily.
+    # Multiple version of this will conflict
     { name = "tracy-client", deny-multiple-versions = true },
     # Having multiple versions of this can silently cause images (such as
     # the logo in the about dialog) in egui to not appear.
     { name = "image", deny-multiple-versions = true },
+    # Force using the 1.0.x series, with no actual IDNA support. We don't
+    # need it (Flash Player didn't support it), so it would just add bloat.
+    # See: https://crates.io/crates/idna_adapter/
+    "idna_adapter:>=1.1",
+    # Would be used by the 1.1 series of idna_adapter.
+    "unicode-normalization",
+    # Would be used by the 1.2 series of idna_adapter.
+    "icu_normalizer",
 ]
 
 [sources]
@@ -77,9 +85,6 @@ unknown-git = "deny"
 # github.com organizations to allow git sources for
 github = [
     "ruffle-rs",
-    # TODO: Remove once a release with https://github.com/emilk/egui/pull/5330
-    # (the wgpu bump to 23.0.0) in it is out.
-    "emilk",
 ]
 
 [advisories]

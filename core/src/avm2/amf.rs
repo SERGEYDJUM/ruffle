@@ -4,7 +4,7 @@ use std::rc::Rc;
 use super::property::Property;
 use crate::avm2::bytearray::ByteArrayStorage;
 use crate::avm2::class::Class;
-use crate::avm2::object::{ByteArrayObject, ClassObject, TObject, VectorObject};
+use crate::avm2::object::{ByteArrayObject, ClassObject, ScriptObject, TObject, VectorObject};
 use crate::avm2::vector::VectorStorage;
 use crate::avm2::ArrayObject;
 use crate::avm2::ArrayStorage;
@@ -46,16 +46,18 @@ pub fn serialize_value<'gc>(
         Value::Object(o) => {
             // TODO: Find a more general rule for which object types should be skipped,
             // and which turn into undefined.
-            if o.as_executable().is_some() {
+            if o.as_function_object().is_some() {
                 None
             } else if o.as_display_object().is_some() {
                 Some(AmfValue::Undefined)
-            } else if o.as_array_storage().is_some() {
+            } else if let Some(array_storage) = o.as_array_storage() {
+                let len = array_storage.length() as u32;
+                drop(array_storage);
+
                 let mut values = Vec::new();
                 // Don't serialize properties from the vtable (we don't want a 'length' field)
                 recursive_serialize(activation, o, &mut values, None, amf_version, object_table)
                     .unwrap();
-                let len = o.as_array_storage().unwrap().length() as u32;
 
                 if amf_version == AMFVersion::AMF3 {
                     let mut dense = vec![];
@@ -200,7 +202,7 @@ pub fn recursive_serialize<'gc>(
                     continue;
                 }
             }
-            let value = obj.get_public_property(name, activation)?;
+            let value = Value::from(obj).get_public_property(name, activation)?;
             let name = name.to_utf8_lossy().to_string();
             if let Some(elem) =
                 get_or_create_element(activation, name.clone(), value, object_table, amf_version)
@@ -213,15 +215,11 @@ pub fn recursive_serialize<'gc>(
 
     // FIXME: Flash only seems to use this enumeration for dynamic classes.
     let mut last_index = obj.get_next_enumerant(0, activation)?;
-    while let Some(index) = last_index {
-        if index == 0 {
-            break;
-        }
-
+    while last_index != 0 {
         let name = obj
-            .get_enumerant_name(index, activation)?
+            .get_enumerant_name(last_index, activation)?
             .coerce_to_string(activation)?;
-        let value = obj.get_enumerant_value(index, activation)?;
+        let value = obj.get_enumerant_value(last_index, activation)?;
 
         let name = name.to_utf8_lossy().to_string();
         if let Some(elem) =
@@ -229,7 +227,7 @@ pub fn recursive_serialize<'gc>(
         {
             elements.push(elem);
         }
-        last_index = obj.get_next_enumerant(index, activation)?;
+        last_index = obj.get_next_enumerant(last_index, activation)?;
     }
     Ok(())
 }
@@ -291,7 +289,7 @@ pub fn deserialize_value_impl<'gc>(
         AmfValue::Undefined => Value::Undefined,
         AmfValue::Number(f) => (*f).into(),
         AmfValue::Integer(num) => (*num).into(),
-        AmfValue::String(s) => Value::String(AvmString::new_utf8(activation.context.gc_context, s)),
+        AmfValue::String(s) => Value::String(AvmString::new_utf8(activation.gc(), s)),
         AmfValue::Bool(b) => (*b).into(),
         AmfValue::ByteArray(bytes) => {
             let storage = ByteArrayStorage::from_vec(bytes.clone());
@@ -300,8 +298,8 @@ pub fn deserialize_value_impl<'gc>(
         }
         AmfValue::ECMAArray(id, values, elements, _) => {
             let empty_storage = ArrayStorage::new(0);
-            let array = ArrayObject::from_storage(activation, empty_storage)?;
-            object_map.insert(*id, array);
+            let array = ArrayObject::from_storage(activation, empty_storage);
+            object_map.insert(*id, array.into());
 
             // First let's create an array out of `values` (dense portion), then we add the elements onto it.
             let mut arr: Vec<Option<Value<'gc>>> = Vec::with_capacity(values.len());
@@ -309,14 +307,13 @@ pub fn deserialize_value_impl<'gc>(
                 arr.push(Some(deserialize_value_impl(activation, value, object_map)?));
             }
             array
-                .as_array_storage_mut(activation.context.gc_context)
-                .expect("Failed to get array storage from ArrayObject")
+                .array_storage_mut(activation.gc())
                 .replace_dense_storage(arr);
 
             // Now let's add each element as a property
             for element in elements {
-                array.set_public_property(
-                    AvmString::new_utf8(activation.context.gc_context, element.name()),
+                array.set_string_property_local(
+                    AvmString::new_utf8(activation.gc(), element.name()),
                     deserialize_value_impl(activation, element.value(), object_map)?,
                     activation,
                 )?;
@@ -325,8 +322,8 @@ pub fn deserialize_value_impl<'gc>(
         }
         AmfValue::StrictArray(id, values) => {
             let empty_storage = ArrayStorage::new(0);
-            let array = ArrayObject::from_storage(activation, empty_storage)?;
-            object_map.insert(*id, array);
+            let array = ArrayObject::from_storage(activation, empty_storage);
+            object_map.insert(*id, array.into());
 
             let mut arr: Vec<Option<Value<'gc>>> = Vec::with_capacity(values.len());
             for value in values {
@@ -334,21 +331,20 @@ pub fn deserialize_value_impl<'gc>(
             }
 
             array
-                .as_array_storage_mut(activation.context.gc_context)
-                .expect("Failed to get array storage from ArrayObject")
+                .array_storage_mut(activation.gc())
                 .replace_dense_storage(arr);
 
             array.into()
         }
         AmfValue::Object(id, elements, class) => {
             let target_class = if let Some(class) = class {
-                let name = AvmString::new_utf8(activation.context.gc_context, &class.name);
+                let name = AvmString::new_utf8(activation.gc(), &class.name);
                 alias_to_class(activation, name)?
             } else {
                 activation.avm2().classes().object
             };
             let obj = target_class.construct(activation, &[])?;
-            object_map.insert(*id, obj);
+            object_map.insert(*id, obj.as_object().unwrap());
 
             for entry in elements {
                 let name = entry.name();
@@ -356,7 +352,7 @@ pub fn deserialize_value_impl<'gc>(
                 // Flash player logs the error and continues deserializing the rest of the object,
                 // even when calling a customer setter
                 if let Err(e) = obj.set_public_property(
-                    AvmString::new_utf8(activation.context.gc_context, name),
+                    AvmString::new_utf8(activation.gc(), name),
                     value,
                     activation,
                 ) {
@@ -366,34 +362,23 @@ pub fn deserialize_value_impl<'gc>(
                     if let Error::AvmError(e) = e {
                         if let Some(e) = e.as_object().and_then(|o| o.as_error_object()) {
                             // Flash player *traces* the error (without a stacktrace)
-                            activation.context.avm_trace(
-                                &e.display().expect("Failed to display error").to_string(),
-                            );
+                            activation.context.avm_trace(&e.display().to_string());
                         }
                     }
                 }
             }
 
-            obj.into()
+            obj
         }
         AmfValue::Date(time, _) => activation
             .avm2()
             .classes()
             .date
-            .construct(activation, &[(*time).into()])?
-            .into(),
-        AmfValue::XML(content, _) => activation
-            .avm2()
-            .classes()
-            .xml
-            .construct(
-                activation,
-                &[Value::String(AvmString::new_utf8(
-                    activation.context.gc_context,
-                    content,
-                ))],
-            )?
-            .into(),
+            .construct(activation, &[(*time).into()])?,
+        AmfValue::XML(content, _) => activation.avm2().classes().xml.construct(
+            activation,
+            &[Value::String(AvmString::new_utf8(activation.gc(), content))],
+        )?,
         AmfValue::VectorDouble(vec, is_fixed) => {
             let storage = VectorStorage::from_values(
                 vec.iter().map(|v| (*v).into()).collect(),
@@ -419,7 +404,7 @@ pub fn deserialize_value_impl<'gc>(
             VectorObject::from_vector(storage, activation)?.into()
         }
         AmfValue::VectorObject(id, vec, ty_name, is_fixed) => {
-            let name = AvmString::new_utf8(activation.context.gc_context, ty_name);
+            let name = AvmString::new_utf8(activation.gc(), ty_name);
             let class = alias_to_class(activation, name)?;
 
             // Create an empty vector, as it has to exist in the map before reading children, in case they reference it
@@ -448,7 +433,7 @@ pub fn deserialize_value_impl<'gc>(
                 .collect::<Result<Vec<_>, _>>()?;
 
             // Swap in the actual values
-            obj.as_vector_storage_mut(activation.context.gc_context)
+            obj.as_vector_storage_mut(activation.gc())
                 .expect("Failed to get vector storage from VectorObject")
                 .replace_storage(new_values);
 
@@ -459,7 +444,10 @@ pub fn deserialize_value_impl<'gc>(
                 .avm2()
                 .classes()
                 .dictionary
-                .construct(activation, &[(*has_weak_keys).into()])?;
+                .construct(activation, &[(*has_weak_keys).into()])?
+                .as_object()
+                .unwrap();
+
             object_map.insert(*id, obj);
             let dict_obj = obj
                 .as_dictionary_object()
@@ -470,10 +458,10 @@ pub fn deserialize_value_impl<'gc>(
                 let value = deserialize_value_impl(activation, value, object_map)?;
 
                 if let Value::Object(key) = key {
-                    dict_obj.set_property_by_object(key, value, activation.context.gc_context);
+                    dict_obj.set_property_by_object(key, value, activation.gc());
                 } else {
                     let key_string = key.coerce_to_string(activation)?;
-                    dict_obj.set_public_property(key_string, value, activation)?;
+                    dict_obj.set_string_property_local(key_string, value, activation)?;
                 }
             }
             dict_obj.into()
@@ -507,15 +495,11 @@ pub fn deserialize_lso<'gc>(
     activation: &mut Activation<'_, 'gc>,
     lso: &Lso,
 ) -> Result<Object<'gc>, Error<'gc>> {
-    let obj = activation
-        .avm2()
-        .classes()
-        .object
-        .construct(activation, &[])?;
+    let obj = ScriptObject::new_object(activation);
 
     for child in &lso.body {
-        obj.set_public_property(
-            AvmString::new_utf8(activation.context.gc_context, &child.name),
+        obj.set_string_property_local(
+            AvmString::new_utf8(activation.gc(), &child.name),
             deserialize_value(activation, child.value())?,
             activation,
         )?;

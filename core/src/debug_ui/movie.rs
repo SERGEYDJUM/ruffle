@@ -132,8 +132,8 @@ impl MovieWindow {
                     let name = export_characters
                         .iter()
                         .find_map(|(k, v)| if *v == id { Some(k) } else { None })
-                        .unwrap_or_default()
-                        .to_string();
+                        .map(|s| s.to_string())
+                        .unwrap_or_default();
 
                     let search = self.character_search.to_ascii_lowercase();
                     if !id.to_string().to_ascii_lowercase().contains(&search)
@@ -277,7 +277,7 @@ pub fn open_character_button(ui: &mut Ui, character: &Character) {
 fn save_swf(movie: &Arc<SwfMovie>, messages: &mut Vec<Message>) {
     let suggested_name = if let Ok(url) = Url::parse(movie.url()) {
         url.path_segments()
-            .and_then(|segments| segments.last())
+            .and_then(|mut segments| segments.next_back())
             .map(|str| str.to_string())
     } else {
         None

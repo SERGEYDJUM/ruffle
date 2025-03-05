@@ -9,6 +9,7 @@ use crate::string::{AvmString, StringContext, WStr, WString};
 use bitflags::bitflags;
 use gc_arena::Gc;
 use gc_arena::{Collect, Mutation};
+use ruffle_macros::istr;
 use std::fmt::Debug;
 use std::ops::Deref;
 use swf::avm2::types::{Index, Multiname as AbcMultiname, NamespaceSet as AbcNamespaceSet};
@@ -281,7 +282,7 @@ impl<'gc> Multiname<'gc> {
             abc_multiname,
             AbcMultiname::QNameA { .. }
                 | AbcMultiname::RTQNameA { .. }
-                | AbcMultiname::RTQNameLA { .. }
+                | AbcMultiname::RTQNameLA
                 | AbcMultiname::MultinameA { .. }
                 | AbcMultiname::MultinameLA { .. }
         ) {
@@ -362,10 +363,10 @@ impl<'gc> Multiname<'gc> {
     }
 
     /// Creates a new Multiname with the `MultinameFlags::ATTRIBUTE` flag.
-    pub fn attribute(ns: Namespace<'gc>, name: impl Into<AvmString<'gc>>) -> Self {
+    pub fn attribute(ns: Namespace<'gc>, name: AvmString<'gc>) -> Self {
         Self {
             ns: NamespaceSet::single(ns),
-            name: Some(name.into()),
+            name: Some(name),
             param: None,
             flags: MultinameFlags::ATTRIBUTE,
         }
@@ -480,9 +481,9 @@ impl<'gc> Multiname<'gc> {
     /// This is used by `describeType`
     pub fn to_qualified_name_or_star(&self, context: &mut StringContext<'gc>) -> AvmString<'gc> {
         if self.is_any_name() {
-            context.ascii_char(b'*')
+            istr!(context, "*")
         } else {
-            self.to_qualified_name(context.gc_context)
+            self.to_qualified_name(context.gc())
         }
     }
 
@@ -497,7 +498,7 @@ impl<'gc> Multiname<'gc> {
 
         if ns.is_empty() {
             // Special-case this to avoid allocating.
-            self.name.unwrap_or_else(|| context.ascii_char(b'*'))
+            self.name.unwrap_or_else(|| istr!(context, "*"))
         } else {
             let mut uri = WString::new();
             uri.push_str(ns);
@@ -541,8 +542,6 @@ pub struct CommonMultinames<'gc> {
     pub boolean: Gc<'gc, Multiname<'gc>>,
     pub function: Gc<'gc, Multiname<'gc>>,
     pub int: Gc<'gc, Multiname<'gc>>,
-    pub number: Gc<'gc, Multiname<'gc>>,
-    pub uint: Gc<'gc, Multiname<'gc>>,
 }
 
 impl<'gc> CommonMultinames<'gc> {
@@ -561,8 +560,6 @@ impl<'gc> CommonMultinames<'gc> {
             boolean: create_pub_multiname(b"Boolean"),
             function: create_pub_multiname(b"Function"),
             int: create_pub_multiname(b"int"),
-            number: create_pub_multiname(b"Number"),
-            uint: create_pub_multiname(b"uint"),
         }
     }
 }

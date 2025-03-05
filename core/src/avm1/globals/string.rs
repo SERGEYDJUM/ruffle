@@ -1,6 +1,7 @@
 //! `String` class impl
 
 use gc_arena::Gc;
+use ruffle_macros::istr;
 
 use crate::avm1::activation::Activation;
 use crate::avm1::error::Error;
@@ -39,7 +40,7 @@ pub fn string<'gc>(
     let value = match args.get(0).cloned() {
         Some(Value::String(s)) => s,
         Some(v) => v.coerce_to_string(activation)?,
-        None => activation.strings().empty(),
+        None => istr!(""),
     };
 
     // Called from a constructor, populate `this`.
@@ -48,7 +49,7 @@ pub fn string<'gc>(
 
     this.define_value(
         activation.gc(),
-        "length",
+        istr!("length"),
         value.len().into(),
         Attribute::empty(),
     );
@@ -65,7 +66,7 @@ pub fn string_function<'gc>(
     let value = match args.get(0).cloned() {
         Some(Value::String(s)) => s,
         Some(v) => v.coerce_to_string(activation)?,
-        None => activation.strings().empty(),
+        None => istr!(""),
     };
 
     Ok(value.into())
@@ -77,7 +78,7 @@ pub fn create_string_object<'gc>(
     fn_proto: Object<'gc>,
 ) -> Object<'gc> {
     let string = FunctionObject::constructor(
-        context.gc_context,
+        context,
         Executable::Native(string),
         Executable::Native(string_function),
         fn_proto,
@@ -94,7 +95,7 @@ pub fn create_proto<'gc>(
     proto: Object<'gc>,
     fn_proto: Object<'gc>,
 ) -> Object<'gc> {
-    let string_proto = ScriptObject::new(context.gc(), Some(proto));
+    let string_proto = ScriptObject::new(context, Some(proto));
     define_properties_on(PROTO_DECLS, context, string_proto, fn_proto);
     string_proto.into()
 }
@@ -115,8 +116,8 @@ fn char_at<'gc>(
         .ok()
         .and_then(|i| string.get(i))
         .map(WString::from_unit)
-        .map(|ret| AvmString::new(activation.context.gc_context, ret))
-        .unwrap_or_else(|| activation.strings().empty());
+        .map(|ret| AvmString::new(activation.gc(), ret))
+        .unwrap_or_else(|| istr!(""));
 
     Ok(ret.into())
 }
@@ -156,7 +157,7 @@ fn concat<'gc>(
         let s = arg.coerce_to_string(activation)?;
         ret.push_str(&s);
     }
-    Ok(AvmString::new(activation.context.gc_context, ret).into())
+    Ok(AvmString::new(activation.gc(), ret).into())
 }
 
 fn from_char_code<'gc>(
@@ -173,7 +174,7 @@ fn from_char_code<'gc>(
         }
         out.push(i);
     }
-    Ok(AvmString::new(activation.context.gc_context, out).into())
+    Ok(AvmString::new(activation.gc(), out).into())
 }
 
 fn index_of<'gc>(
@@ -248,9 +249,9 @@ fn slice<'gc>(
     };
     if start_index < end_index {
         let ret = WString::from(&this[start_index..end_index]);
-        Ok(AvmString::new(activation.context.gc_context, ret).into())
+        Ok(AvmString::new(activation.gc(), ret).into())
     } else {
-        Ok(activation.strings().empty().into())
+        Ok(istr!("").into())
     }
 }
 
@@ -268,7 +269,7 @@ fn split<'gc>(
     // and the empty string behaves the same as undefined does in later SWF versions.
     let is_swf5 = activation.swf_version() == 5;
     if let Some(delimiter) = match args.get(0).unwrap_or(&Value::Undefined) {
-        &Value::Undefined => is_swf5.then_some(",".into()),
+        &Value::Undefined => is_swf5.then_some(istr!(",")),
         v => Some(v.coerce_to_string(activation)?).filter(|s| !(is_swf5 && s.is_empty())),
     } {
         if delimiter.is_empty() {
@@ -276,31 +277,25 @@ fn split<'gc>(
             // but Flash does not.
             // e.g., split("foo", "") returns ["", "f", "o", "o", ""] in Rust but ["f, "o", "o"] in Flash.
             // Special case this to match Flash's behavior.
-            Ok(ArrayObject::new(
-                activation.context.gc_context,
-                activation.context.avm1.prototypes().array,
-                this.iter().take(limit).map(|c| {
-                    AvmString::new(activation.context.gc_context, WString::from_unit(c)).into()
-                }),
-            )
-            .into())
+            Ok(ArrayObject::builder(activation)
+                .with(
+                    this.iter()
+                        .take(limit)
+                        .map(|c| activation.strings().make_char(c).into()),
+                )
+                .into())
         } else {
-            Ok(ArrayObject::new(
-                activation.context.gc_context,
-                activation.context.avm1.prototypes().array,
-                this.split(&delimiter)
-                    .take(limit)
-                    .map(|c| AvmString::new(activation.context.gc_context, c).into()),
-            )
-            .into())
+            // TODO(moulins): make dependent AvmStrings instead of reallocating.
+            Ok(ArrayObject::builder(activation)
+                .with(
+                    this.split(&delimiter)
+                        .take(limit)
+                        .map(|c| AvmString::new(activation.gc(), c).into()),
+                )
+                .into())
         }
     } else {
-        Ok(ArrayObject::new(
-            activation.context.gc_context,
-            activation.context.avm1.prototypes().array,
-            [this.into()],
-        )
-        .into())
+        Ok(ArrayObject::builder(activation).with([this.into()]).into())
     }
 }
 
@@ -330,9 +325,9 @@ fn substr<'gc>(
 
     if start_index < end_index {
         let ret = WString::from(&this[start_index..end_index]);
-        Ok(AvmString::new(activation.context.gc_context, ret).into())
+        Ok(AvmString::new(activation.gc(), ret).into())
     } else {
-        Ok(activation.strings().empty().into())
+        Ok(istr!("").into())
     }
 }
 
@@ -359,7 +354,7 @@ fn substring<'gc>(
         std::mem::swap(&mut end_index, &mut start_index);
     }
     let ret = WString::from(&this[start_index..end_index]);
-    Ok(AvmString::new(activation.context.gc_context, ret).into())
+    Ok(AvmString::new(activation.gc(), ret).into())
 }
 
 fn to_lower_case<'gc>(
@@ -370,7 +365,7 @@ fn to_lower_case<'gc>(
     let this_val = Value::from(this);
     let this = this_val.coerce_to_string(activation)?;
     Ok(AvmString::new(
-        activation.context.gc_context,
+        activation.gc(),
         this.iter()
             .map(string_utils::swf_to_lowercase)
             .collect::<WString>(),
@@ -404,7 +399,7 @@ fn to_upper_case<'gc>(
     let this_val = Value::from(this);
     let this = this_val.coerce_to_string(activation)?;
     Ok(AvmString::new(
-        activation.context.gc_context,
+        activation.gc(),
         this.iter()
             .map(string_utils::swf_to_uppercase)
             .collect::<WString>(),

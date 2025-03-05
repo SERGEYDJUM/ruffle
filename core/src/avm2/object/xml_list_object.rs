@@ -12,6 +12,7 @@ use gc_arena::{
     lock::{Lock, RefLock},
     Collect, Gc, GcWeak, Mutation,
 };
+use ruffle_macros::istr;
 use ruffle_wstr::WString;
 use std::cell::{Cell, Ref, RefMut};
 use std::fmt::{self, Debug};
@@ -26,7 +27,7 @@ pub fn xml_list_allocator<'gc>(
     let base = ScriptObjectData::new(class);
 
     Ok(XmlListObject(Gc::new(
-        activation.context.gc_context,
+        activation.gc(),
         XmlListObjectData {
             base,
             children: RefLock::new(Vec::new()),
@@ -73,7 +74,7 @@ impl<'gc> XmlListObject<'gc> {
     ) -> XmlListObject<'gc> {
         let base = ScriptObjectData::new(activation.context.avm2.classes().xml_list);
         XmlListObject(Gc::new(
-            activation.context.gc_context,
+            activation.gc(),
             XmlListObjectData {
                 base,
                 children: RefLock::new(children),
@@ -135,7 +136,7 @@ impl<'gc> XmlListObject<'gc> {
         let children = self
             .children()
             .iter()
-            .map(|child| E4XOrXml::E4X(child.node().deep_copy(activation.context.gc_context)))
+            .map(|child| E4XOrXml::E4X(child.node().deep_copy(activation.gc())))
             .collect();
         XmlListObject::new_with_children(
             activation,
@@ -292,7 +293,7 @@ impl<'gc> XmlListObject<'gc> {
                 // 2.e.ii. Call [[Put]] on base with arguments x.[[TargetProperty]] and the empty string
                 base.as_object().set_property_local(
                     &target_property,
-                    activation.strings().empty().into(),
+                    istr!("").into(),
                     activation,
                 )?;
 
@@ -572,9 +573,7 @@ impl<'gc> TObject<'gc> for XmlListObject<'gc> {
         arguments: &[Value<'gc>],
         activation: &mut Activation<'_, 'gc>,
     ) -> Result<Value<'gc>, Error<'gc>> {
-        let method = self
-            .proto()
-            .expect("XMLList missing prototype")
+        let method = Value::from(self.proto().expect("XMLList missing prototype"))
             .get_property(multiname, activation)?;
 
         // See https://github.com/adobe/avmplus/blob/858d034a3bd3a54d9b70909386435cf4aec81d21/core/XMLListObject.cpp#L50
@@ -604,18 +603,15 @@ impl<'gc> TObject<'gc> for XmlListObject<'gc> {
             if let Some(list) = prop.as_object().and_then(|obj| obj.as_xml_list_object()) {
                 if list.length() == 0 && self.length() == 1 {
                     let mut children = self.children_mut(activation.gc());
-                    return children
-                        .first_mut()
-                        .unwrap()
-                        .get_or_create_xml(activation)
-                        .call_property(multiname, arguments, activation);
+
+                    let child = children.first_mut().unwrap().get_or_create_xml(activation);
+
+                    return Value::from(child).call_property(multiname, arguments, activation);
                 }
             }
         }
 
-        return method
-            .as_callable(activation, Some(multiname), Some(self.into()), false)?
-            .call(self.into(), arguments, activation);
+        method.call(activation, self.into(), arguments)
     }
 
     fn has_own_property(self, name: &Multiname<'gc>) -> bool {
@@ -638,10 +634,10 @@ impl<'gc> TObject<'gc> for XmlListObject<'gc> {
 
     fn has_own_property_string(
         self,
-        name: impl Into<AvmString<'gc>>,
+        name: AvmString<'gc>,
         activation: &mut Activation<'_, 'gc>,
     ) -> Result<bool, Error<'gc>> {
-        let multiname = string_to_multiname(activation, name.into());
+        let multiname = string_to_multiname(activation, name);
         Ok(self.has_own_property(&multiname))
     }
 
@@ -723,7 +719,7 @@ impl<'gc> TObject<'gc> for XmlListObject<'gc> {
                                     activation.gc(),
                                     x.explicit_namespace().map(E4XNamespace::new_uri),
                                     x.local_name().unwrap(),
-                                    activation.strings().empty(),
+                                    istr!(""),
                                     r,
                                 )
                             }
@@ -731,19 +727,17 @@ impl<'gc> TObject<'gc> for XmlListObject<'gc> {
                             // 2.c.v.1. Let y.[[Name]] = null
                             // 2.c.v.2. Let y.[[Class]] = "text"
                             Some(x) if x.is_any_name() => {
-                                E4XNode::text(activation.gc(), activation.strings().empty(), r)
+                                E4XNode::text(activation.gc(), istr!(""), r)
                             }
-                            None => E4XNode::text(activation.gc(), activation.strings().empty(), r),
+                            None => E4XNode::text(activation.gc(), istr!(""), r),
                             // NOTE: avmplus edge case.
                             //       See https://github.com/adobe/avmplus/blob/858d034a3bd3a54d9b70909386435cf4aec81d21/core/XMLListObject.cpp#L297-L300
                             _ if value
                                 .as_object()
                                 .and_then(|x| x.as_xml_object())
-                                .map_or(false, |x| {
-                                    x.node().is_text() || x.node().is_attribute()
-                                }) =>
+                                .is_some_and(|x| x.node().is_text() || x.node().is_attribute()) =>
                             {
-                                E4XNode::text(activation.gc(), activation.strings().empty(), r)
+                                E4XNode::text(activation.gc(), istr!(""), r)
                             }
 
                             // 2.c.vi. Else let y.[[Class]] = "element"
@@ -936,7 +930,7 @@ impl<'gc> TObject<'gc> for XmlListObject<'gc> {
                     // 2.g. Else if (Type(V) is XML) or (x[i].[[Class]] ∈ {"text", "comment", "processing-instruction"})
                     } else if value
                         .as_object()
-                        .map_or(false, |x| x.as_xml_object().is_some())
+                        .is_some_and(|x| x.as_xml_object().is_some())
                         || matches!(
                             *child.kind(),
                             E4XNodeKind::Text(_)
@@ -981,6 +975,8 @@ impl<'gc> TObject<'gc> for XmlListObject<'gc> {
                                 .classes()
                                 .xml
                                 .construct(activation, &[value])?
+                                .as_object()
+                                .unwrap()
                                 .as_xml_object()
                                 .expect("Should be XML Object");
                             children[index] = E4XOrXml::Xml(xml);
@@ -1035,14 +1031,12 @@ impl<'gc> TObject<'gc> for XmlListObject<'gc> {
         self,
         last_index: u32,
         _activation: &mut Activation<'_, 'gc>,
-    ) -> Result<Option<u32>, Error<'gc>> {
+    ) -> Result<u32, Error<'gc>> {
         if (last_index as usize) < self.0.children.borrow().len() {
-            return Ok(Some(last_index + 1));
+            return Ok(last_index + 1);
         }
-        // Return `Some(0)` instead of `None`, as we do *not* want to
-        // fall back to the prototype chain. XMLList is special, and enumeration
-        // *only* ever considers the XML children.
-        Ok(Some(0))
+
+        Ok(0)
     }
 
     fn get_enumerant_value(
@@ -1079,12 +1073,12 @@ impl<'gc> TObject<'gc> for XmlListObject<'gc> {
             Ok(index
                 .checked_sub(1)
                 .map(|index| index.into())
-                .unwrap_or(Value::Undefined))
+                .unwrap_or(Value::Null))
         } else {
             Ok(self
                 .base()
                 .get_enumerant_name(index - children_len)
-                .unwrap_or(Value::Undefined))
+                .unwrap_or(Value::Null))
         }
     }
 
@@ -1103,10 +1097,9 @@ impl<'gc> TObject<'gc> for XmlListObject<'gc> {
                         let removed_node = removed.node();
                         if let Some(parent) = removed_node.parent() {
                             if removed_node.is_attribute() {
-                                parent
-                                    .remove_attribute(activation.context.gc_context, &removed_node);
+                                parent.remove_attribute(activation.gc(), &removed_node);
                             } else {
-                                parent.remove_child(activation.context.gc_context, &removed_node);
+                                parent.remove_child(activation.gc(), &removed_node);
                             }
                         }
                     }

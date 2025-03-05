@@ -91,7 +91,7 @@ pub struct Avm1<'gc> {
 
 impl<'gc> Avm1<'gc> {
     pub fn new(context: &mut StringContext<'gc>, player_version: u8) -> Self {
-        let gc_context = context.gc_context;
+        let gc_context = context.gc();
         let (prototypes, globals, broadcaster_functions) = create_globals(context);
 
         Self {
@@ -100,7 +100,7 @@ impl<'gc> Avm1<'gc> {
             global_scope: Gc::new(gc_context, Scope::from_global_object(globals)),
             prototypes,
             broadcaster_functions,
-            display_properties: stage_object::DisplayPropertyMap::new(),
+            display_properties: stage_object::DisplayPropertyMap::new(context),
             stack: vec![],
             registers: [
                 Value::Undefined,
@@ -145,7 +145,7 @@ impl<'gc> Avm1<'gc> {
             .object()
             .coerce_to_object(&mut parent_activation);
         let child_scope = Gc::new(
-            parent_activation.context.gc_context,
+            parent_activation.gc(),
             Scope::new(
                 parent_activation.scope(),
                 scope::ScopeClass::Target,
@@ -185,7 +185,7 @@ impl<'gc> Avm1<'gc> {
             _ => panic!("No script object for display object"),
         };
         let child_scope = Gc::new(
-            action_context.gc_context,
+            action_context.gc(),
             Scope::new(
                 action_context.avm1.global_scope,
                 scope::ScopeClass::Target,
@@ -229,7 +229,7 @@ impl<'gc> Avm1<'gc> {
             .object()
             .coerce_to_object(&mut parent_activation);
         let child_scope = Gc::new(
-            parent_activation.context.gc_context,
+            parent_activation.gc(),
             Scope::new(
                 parent_activation.scope(),
                 scope::ScopeClass::Target,
@@ -261,9 +261,9 @@ impl<'gc> Avm1<'gc> {
     pub fn run_stack_frame_for_method(
         active_clip: DisplayObject<'gc>,
         obj: Object<'gc>,
-        context: &mut UpdateContext<'gc>,
         name: AvmString<'gc>,
         args: &[Value<'gc>],
+        context: &mut UpdateContext<'gc>,
     ) {
         if context.avm1.halted {
             // We've been told to ignore all future execution.
@@ -281,10 +281,10 @@ impl<'gc> Avm1<'gc> {
 
     pub fn notify_system_listeners(
         active_clip: DisplayObject<'gc>,
-        context: &mut UpdateContext<'gc>,
         broadcaster_name: AvmString<'gc>,
         method: AvmString<'gc>,
         args: &[Value<'gc>],
+        context: &mut UpdateContext<'gc>,
     ) {
         let mut activation = Activation::from_nothing(
             context,
@@ -301,7 +301,7 @@ impl<'gc> Avm1<'gc> {
             .coerce_to_object(&mut activation);
 
         let has_listener =
-            as_broadcaster::broadcast_internal(&mut activation, broadcaster, args, method)
+            as_broadcaster::broadcast_internal(broadcaster, args, method, &mut activation)
                 .unwrap_or(false);
         drop(activation);
 
@@ -444,18 +444,20 @@ impl<'gc> Avm1<'gc> {
             Self::find_display_objects_pending_removal(root_clip, &mut out);
         }
 
-        for child in out {
+        for &child in &out {
             // Get the parent of this object
-            let parent = child.parent().unwrap();
-            let parent_container = parent.as_container().unwrap();
+            if let Some(parent_container) = child.parent().and_then(|p| p.as_container()) {
+                // Remove it
+                parent_container.remove_child_directly(context, child);
 
-            // Remove it
-            parent_container.remove_child_directly(context, child);
-
-            // Update pending removal state
-            parent_container
-                .raw_container_mut(context.gc_context)
-                .update_pending_removals();
+                // Update pending removal state
+                parent_container
+                    .raw_container_mut(context.gc())
+                    .update_pending_removals();
+            } else {
+                // TODO Investigate it. This situation seems impossible, yet it happens.
+                tracing::warn!("AVM1 object pending removal doesn't have a parent, object={:?}, pending removal={:?}", child, out);
+            }
         }
     }
 
@@ -478,11 +480,11 @@ impl<'gc> Avm1<'gc> {
             if clip.avm1_removed() {
                 // Clean up removed clips from this frame or a previous frame.
                 if let Some(prev) = prev {
-                    prev.set_next_avm1_clip(context.gc_context, next);
+                    prev.set_next_avm1_clip(context.gc(), next);
                 } else {
                     context.avm1.clip_exec_list = next;
                 }
-                clip.set_next_avm1_clip(context.gc_context, None);
+                clip.set_next_avm1_clip(context.gc(), None);
             } else {
                 clip.run_frame_avm1(context);
                 prev = Some(clip);
@@ -585,10 +587,13 @@ pub fn skip_actions(reader: &mut Reader<'_>, num_actions_to_skip: u8) {
 pub fn root_error_handler<'gc>(activation: &mut Activation<'_, 'gc>, error: Error<'gc>) {
     match &error {
         Error::ThrownValue(value) => {
-            let message = value
-                .coerce_to_string(activation)
-                .unwrap_or_else(|_| "undefined".into());
-            activation.context.avm_trace(&message.to_utf8_lossy());
+            if let Ok(message) = value.coerce_to_string(activation) {
+                activation.context.avm_trace(&message.to_utf8_lossy());
+            } else {
+                // The only Value variant that can throw an error when being stringified
+                // is Object, so just print "[type Object]".
+                activation.context.avm_trace("[type Object]");
+            }
             // Continue execution without halting.
             return;
         }

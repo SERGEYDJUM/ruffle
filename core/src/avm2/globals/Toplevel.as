@@ -30,7 +30,24 @@ package {
 // These classes are required by other core code, so we put them here. Toplevel.as
 // is loaded before the rest of the global code.
 
+// Function must go first because prototype methods can't be created without it
+include "Function.as"
+
 include "Error.as"
+
+include "Array.as"
+include "Boolean.as"
+include "int.as"
+include "Number.as"
+include "String.as"
+include "uint.as"
+
+include "Vector.as"
+
+include "VectorDouble.as"
+include "VectorInt.as"
+include "VectorObject.as"
+include "VectorUint.as"
 
 include "ArgumentError.as"
 include "DefinitionError.as"

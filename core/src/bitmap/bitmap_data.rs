@@ -492,7 +492,7 @@ mod wrapper {
             context: &mut RenderContext<'_, 'gc>,
             pixel_snapping: PixelSnapping,
         ) {
-            let mut inner_bitmap_data = self.0.write(context.gc_context);
+            let mut inner_bitmap_data = self.0.write(context.gc());
             if inner_bitmap_data.disposed() {
                 return;
             }
@@ -626,6 +626,8 @@ impl<'gc> BitmapData<'gc> {
             let bitmap_handle = renderer.register_bitmap(bitmap);
             if let Err(e) = &bitmap_handle {
                 tracing::warn!("Failed to register raw bitmap for BitmapData: {:?}", e);
+            } else {
+                self.dirty_state = DirtyState::Clean;
             }
             self.bitmap_handle = bitmap_handle.ok();
         }

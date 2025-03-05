@@ -2,7 +2,7 @@ use std::{borrow::Cow, ops::Range};
 
 use gc_arena::{Gc, Mutation};
 
-use super::{AvmAtom, AvmString, AvmStringInterner, AvmStringRepr, WStr, WString};
+use super::{AvmAtom, AvmString, AvmStringInterner, AvmStringRepr, CommonStrings, WStr, WString};
 
 /// Context for managing `AvmString`s: allocating them, interning them, etc...
 pub struct StringContext<'gc> {
@@ -27,6 +27,11 @@ impl<'gc> StringContext<'gc> {
     #[inline(always)]
     pub fn gc(&self) -> &'gc Mutation<'gc> {
         self.gc_context
+    }
+
+    #[inline(always)]
+    pub fn common(&self) -> &CommonStrings<'gc> {
+        &self.interner.common
     }
 
     #[must_use]
@@ -72,12 +77,12 @@ impl<'gc> StringContext<'gc> {
 
     #[must_use]
     pub fn empty(&self) -> AvmString<'gc> {
-        self.interner.empty.into()
+        self.common().str_.into()
     }
 
     #[must_use]
     pub fn make_char(&self, c: u16) -> AvmString<'gc> {
-        if let Some(s) = self.interner.chars.get(c as usize) {
+        if let Some(s) = self.common().ascii_chars.get(c as usize) {
             (*s).into()
         } else {
             AvmString::new(self.gc(), WString::from_unit(c))
@@ -87,12 +92,23 @@ impl<'gc> StringContext<'gc> {
     /// Like `make_char`, but panics if the passed char is not ASCII.
     #[must_use]
     pub fn ascii_char(&self, c: u8) -> AvmString<'gc> {
-        self.interner.chars[c as usize].into()
+        self.common().ascii_chars[c as usize].into()
     }
 
     #[must_use]
     pub fn substring(&self, s: AvmString<'gc>, range: Range<usize>) -> AvmString<'gc> {
         self.interner
             .substring(self.gc(), s, range.start, range.end)
+    }
+}
+
+pub trait HasStringContext<'gc> {
+    fn strings_ref(&self) -> &StringContext<'gc>;
+}
+
+impl<'gc> HasStringContext<'gc> for StringContext<'gc> {
+    #[inline(always)]
+    fn strings_ref(&self) -> &StringContext<'gc> {
+        self
     }
 }
